@@ -6,6 +6,7 @@ from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtGui import QFont, QTextCursor
 
 from core.terminal import TerminalBuffer
+from ui.output_highlighter import OutputHighlighter
 
 
 class TerminalWidget(QWidget):
@@ -48,19 +49,30 @@ class TerminalWidget(QWidget):
 
         # 文本显示区
         self.text_edit = QTextEdit()
-        self.text_edit.setFont(QFont("Consolas", 10))
+        # 等宽字体栈：优先现代编程字体，回退 Consolas（Windows 必有）与雅黑（中文）
+        term_font = QFont()
+        term_font.setFamilies(
+            ["Cascadia Mono", "JetBrains Mono", "Consolas",
+             "Microsoft YaHei", "monospace"]
+        )
+        term_font.setPointSize(10)
+        term_font.setStyleHint(QFont.StyleHint.Monospace)
+        self.text_edit.setFont(term_font)
         self.text_edit.setReadOnly(False)
         self.text_edit.setAcceptRichText(False)
         self.text_edit.setUndoRedoEnabled(False)
         self.text_edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.text_edit.setStyleSheet("""
             QTextEdit {
-                background-color: #1e2227;
-                color: #e6edf3;
+                background-color: #1b2027;
+                color: #c9d1d9;
                 border: none;
-                selection-background-color: rgba(34, 211, 238, 0.3);
+                selection-background-color: rgba(34, 211, 238, 0.28);
             }
         """)
+
+        # 输出着色：把错误/UP/DOWN/IP/MAC/接口名标出来（见 output_highlighter.py）
+        self.highlighter = OutputHighlighter(self.text_edit.document())
 
         # 重写按键处理
         self.text_edit.keyPressEvent = self.handle_key_press

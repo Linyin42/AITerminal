@@ -20,6 +20,7 @@ from PyQt6.QtGui import QDesktopServices
 from core.llm import PROVIDERS, provider_defaults, provider_label
 from config.settings import Settings
 from config.presets import TASK_TEMPLATES, get_vendor_commands
+from ui.output_highlighter import OutputHighlighter
 
 SEARCH_BACKENDS = [
     ("自动（推荐）", "auto"),
@@ -174,8 +175,11 @@ class AIPanel(QWidget):
         self.screen_preview.setMaximumHeight(110)
         self.screen_preview.setPlaceholderText("会话建立后这里显示最近捕获到的设备输出")
         self.screen_preview.setStyleSheet(
-            "background-color: #1a1f25; color: #9aa7b8; font-family: Consolas; font-size: 11px;"
+            "background-color: #1b2027; color: #9aa7b8;"
+            " font-family: Consolas, monospace; font-size: 11px;"
         )
+        # 设备输出着色（错误/UP/DOWN/IP/MAC/接口名）
+        OutputHighlighter(self.screen_preview.document())
         screen_layout.addWidget(self.screen_preview)
         screen_group.setLayout(screen_layout)
         layout.addWidget(screen_group)
@@ -187,10 +191,12 @@ class AIPanel(QWidget):
         self.ai_output.setReadOnly(True)
         self.ai_output.setStyleSheet("""
             QTextEdit {
-                background-color: #1e2227;
-                color: #67e8f9;
+                background-color: #1b2027;
+                color: #c9d1d9;
             }
         """)
+        # 输出着色：AI 生成的命令/设备回显里的关键信息标出来
+        OutputHighlighter(self.ai_output.document())
         output_layout.addWidget(self.ai_output)
         output_group.setLayout(output_layout)
         layout.addWidget(output_group, 1)
@@ -346,8 +352,9 @@ class AIPanel(QWidget):
         self.research_output = QTextEdit()
         self.research_output.setReadOnly(True)
         self.research_output.setStyleSheet(
-            "background-color: #1e2227; color: #ce9178;"
+            "background-color: #1b2027; color: #c9d1d9;"
         )
+        OutputHighlighter(self.research_output.document())
         answer_layout.addWidget(self.research_output)
         answer_group.setLayout(answer_layout)
         layout.addWidget(answer_group, 1)
