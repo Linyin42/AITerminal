@@ -1,0 +1,9 @@
+PyQt6>=6.6.0
+PyQt6-Qt6>=6.6.0
+paramiko>=3.4.0
+pyserial>=3.5
+anthropic>=0.34.0
+python-dotenv>=1.0.0
+
+# 本地资料库解析 PDF 命令手册需要（其余格式 txt/md/docx/xlsx/pptx/html 用标准库解析）
+pypdf>=4.0.0
