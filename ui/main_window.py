@@ -77,7 +77,13 @@ class MainWindow(QMainWindow):
         self.tab_widget.currentChanged.connect(self.on_tab_changed)
         self.setCentralWidget(self.tab_widget)
 
-        # 右侧：AI 助手（Catty 对话 + AI 高级）
+        # 左侧：设备库 Vault
+        self.vault_dock = QDockWidget("设备库", self)
+        self.vault_panel = VaultPanel()
+        self.vault_dock.setWidget(self.vault_panel)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.vault_dock)
+
+        # 中间：AI 助手（Catty 对话 + AI 高级），占比较窄
         self.ai_dock = QDockWidget("AI 助手", self)
         self.ai_panel = AIPanel()
         self.chat_view = ChatView()
@@ -85,17 +91,14 @@ class MainWindow(QMainWindow):
         self.right_tabs.addTab(self.chat_view, "Catty 对话")
         self.right_tabs.addTab(self.ai_panel, "AI 高级")
         self.ai_dock.setWidget(self.right_tabs)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.ai_dock)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.ai_dock)
+        # 把 AI 助手放到设备库右侧、终端左侧
+        self.splitDockWidget(self.vault_dock, self.ai_dock, Qt.Orientation.Horizontal)
 
-        # 左侧：设备库 Vault
-        self.vault_dock = QDockWidget("设备库", self)
-        self.vault_panel = VaultPanel()
-        self.vault_dock.setWidget(self.vault_panel)
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.vault_dock)
-        # 让左右 dock 都可见时合理分配初始宽度
+        # 初始宽度：设备库窄、AI 助手适中、右侧终端最大
         self.resizeDocks(
             [self.vault_dock, self.ai_dock],
-            [240, 380], Qt.Orientation.Horizontal
+            [210, 340], Qt.Orientation.Horizontal
         )
 
         # 用已保存的设备库初始化左侧 Vault
