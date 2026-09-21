@@ -11,7 +11,7 @@ import threading
 from PyQt6.QtWidgets import (
     QMainWindow, QTabWidget, QDockWidget, QToolBar,
     QStatusBar, QMessageBox, QApplication, QLabel, QProgressDialog,
-    QFileDialog
+    QFileDialog, QWidget
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction
@@ -79,12 +79,15 @@ class MainWindow(QMainWindow):
 
         # 左侧：设备库 Vault
         self.vault_dock = QDockWidget("设备库", self)
+        self.vault_dock.setObjectName("VaultDock")
         self.vault_panel = VaultPanel()
         self.vault_dock.setWidget(self.vault_panel)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.vault_dock)
+        self.vault_dock.setTitleBarWidget(QWidget())   # 隐藏标题栏（NetCatty 风格）
 
         # 中间：AI 助手（Catty 对话 + AI 高级），占比较窄
         self.ai_dock = QDockWidget("AI 助手", self)
+        self.ai_dock.setObjectName("AIDock")
         self.ai_panel = AIPanel()
         self.chat_view = ChatView()
         self.right_tabs = QTabWidget()
@@ -92,13 +95,14 @@ class MainWindow(QMainWindow):
         self.right_tabs.addTab(self.ai_panel, "AI 高级")
         self.ai_dock.setWidget(self.right_tabs)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.ai_dock)
+        self.ai_dock.setTitleBarWidget(QWidget())   # 隐藏标题栏
         # 把 AI 助手放到设备库右侧、终端左侧
         self.splitDockWidget(self.vault_dock, self.ai_dock, Qt.Orientation.Horizontal)
 
-        # 初始宽度：设备库窄、AI 助手适中、右侧终端最大
+        # 初始宽度：设备库 280 / AI 助手 320 / 终端占最大
         self.resizeDocks(
             [self.vault_dock, self.ai_dock],
-            [210, 340], Qt.Orientation.Horizontal
+            [280, 320], Qt.Orientation.Horizontal
         )
 
         # 用已保存的设备库初始化左侧 Vault

@@ -1,132 +1,177 @@
 """
-设备库面板 (Vault) —— 对标 NetCatty 左侧的 Vault
+设备库面板 (Vault) —— 参考 NetCatty 风格
 
-显示已保存的设备列表，点击即可连接，也支持新建 / 编辑 / 删除 / 刷新。
-每台设备是一张卡片：名称、主机:端口、协议徽标、连接状态点。
+每台设备是一张大圆角卡片，左侧有品牌色圆形图标（按厂商/协议着色），
+右侧上方是设备名、下方是 user@host:port，已连接时右侧出现一个绿点。
+双击连接，右键弹出菜单（连接 / 编辑 / 删除）。
+顶部有搜索框与 "+ 新建" 青色按钮。
 """
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-    QPushButton, QLabel, QFrame, QSizePolicy
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton,
+    QLineEdit, QScrollArea, QSizePolicy, QMenu
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
-from PyQt6.QtGui import QColor, QBrush, QPalette
 
 
-def _device_key(config: dict) -> tuple:
-    host = config.get('host') or config.get('serial_port') or ''
-    return (config.get('protocol'), host, config.get('port'))
+def _device_key(cfg: dict) -> tuple:
+    host = cfg.get('host') or cfg.get('serial_port') or ''
+    return (cfg.get('protocol'), host, cfg.get('port'))
 
 
-def _device_title(config: dict) -> str:
-    name = config.get('name') or config.get('host') or config.get('serial_port') or '未命名设备'
-    return name
+def _icon_letter(cfg: dict) -> str:
+    v = (cfg.get('vendor') or '').lower()
+    p = (cfg.get('protocol') or '').lower()
+    if v == 'h3c':
+        return 'H'
+    if v in ('huawei', 'vrp', 'hw'):
+        return '华'
+    if v == 'cisco':
+        return 'C'
+    if v == 'ruijie':
+        return 'R'
+    if v == 'h3c':
+        return 'H'
+    if p == 'telnet':
+        return 'T'
+    if p == 'serial':
+        return 'S'
+    return 'S'  # SSH default
 
 
-def _device_subtitle(config: dict) -> str:
-    protocol = config.get('protocol', 'SSH')
-    if protocol == 'Serial':
-        host = config.get('serial_port') or 'COM?'
+def _icon_color(cfg: dict) -> str:
+    v = (cfg.get('vendor') or '').lower()
+    p = (cfg.get('protocol') or '').lower()
+    if v == 'h3c' or v in ('huawei', 'vrp', 'hw'):
+        return '#f97316'  # 橙
+    if v == 'cisco':
+        return '#3b82f6'  # 蓝
+    if v == 'ruijie':
+        return '#a855f7'  # 紫
+    if p == 'telnet':
+        return '#f59e0b'  # 琥珀
+    if p == 'serial':
+        return '#10b981'  # 翠绿
+    return '#22d3ee'      # 青（默认 SSH）
+
+
+def _subtitle(cfg: dict) -> str:
+    p = cfg.get('protocol', 'SSH')
+    if p == 'Serial':
+        host = cfg.get('serial_port') or 'COM?'
     else:
-        host = config.get('host') or ''
-        port = config.get('port')
+        host = cfg.get('host') or ''
+        port = cfg.get('port')
         if host and port:
             host = f"{host}:{port}"
-    vendor = config.get('vendor')
-    sub = f"{protocol}  {host}" if host else protocol
-    if vendor and vendor != 'unknown':
-        sub += f"  ·  {vendor.upper()}"
-    return sub
+    user = cfg.get('username') or 'root'
+    if host:
+        return f"{user}@{host}"
+    return p
 
 
-class DeviceCard(QFrame):
-    """设备库里的一张卡片（名称 + 主机信息 + 状态点）"""
+class HostCard(QFrame):
+    """一张大圆角设备卡片"""
+    clicked = pyqtSignal(dict)
+    double_clicked = pyqtSignal(dict)
+    context_requested = pyqtSignal(dict, object)  # config, global QPoint
 
     def __init__(self, config: dict, parent=None):
         super().__init__(parent)
         self.config = config
-        self.setFrameShape(QFrame.Shape.StyledPanel)
-        self.setLineWidth(0)
+        self.setObjectName("HostCard")
+        self.setFixedHeight(72)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.selected = False
         self.connected = False
         self._build()
+        self._apply_style()
 
     def _build(self):
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
 
-        # 状态点
+        # 品牌色圆形图标
+        self.icon = QLabel(_icon_letter(self.config))
+        self.icon.setObjectName("HostCardIcon")
+        self.icon.setFixedSize(44, 44)
+        self.icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.icon)
+
+        # 文字
+        col = QVBoxLayout()
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(2)
+        name = self.config.get('name') or self.config.get('host') or self.config.get('serial_port') or '未命名'
+        self.title = QLabel(name)
+        self.title.setObjectName("HostCardTitle")
+        self.sub = QLabel(_subtitle(self.config))
+        self.sub.setObjectName("HostCardSub")
+        col.addWidget(self.title)
+        col.addWidget(self.sub)
+        layout.addLayout(col, 1)
+
+        # 已连接指示点
         self.dot = QLabel("●")
-        self.dot.setFixedSize(10, 10)
-        self._paint_dot()
+        self.dot.setObjectName("HostCardDot")
+        self.dot.setFixedWidth(14)
+        self.dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.dot.hide()
         layout.addWidget(self.dot)
 
-        # 文本区
-        text = QVBoxLayout()
-        text.setSpacing(1)
-        title = QLabel(_device_title(self.config))
-        title.setStyleSheet("color: #e8e8e8; font-weight: bold; font-size: 13px;")
-        sub = QLabel(_device_subtitle(self.config))
-        sub.setStyleSheet("color: #8a8a8a; font-size: 11px;")
-        text.addWidget(title)
-        text.addWidget(sub)
-        layout.addLayout(text, 1)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context)
 
-        # 协议徽标
-        badge = QLabel(self.config.get('protocol', 'SSH'))
-        badge.setStyleSheet(
-            "color: #4fc1ff; border: 1px solid #3c3c3c; border-radius: 3px;"
-            " padding: 1px 6px; font-size: 10px;"
+    def _apply_style(self):
+        if self.selected:
+            bg, border = '#1f3a3d', '#22d3ee'
+        else:
+            bg, border = '#262a31', '#3a4049'
+        self.setStyleSheet(
+            f"QFrame#HostCard {{ background:{bg}; border:1px solid {border}; border-radius:12px; }}"
+            f"QFrame#HostCard:hover {{ background:#2d323a; border-color:#4a525d; }}"
+            f"QLabel#HostCardIcon {{ background:{_icon_color(self.config)}; color:#ffffff;"
+            f" border-radius:22px; font-weight:bold; font-size:16px; }}"
+            f"QLabel#HostCardTitle {{ color:#e6edf3; font-weight:bold; font-size:13px;"
+            f" background:transparent; border:none; }}"
+            f"QLabel#HostCardSub {{ color:#9aa7b8; font-size:11px;"
+            f" background:transparent; border:none; }}"
+            f"QLabel#HostCardDot {{ color:#34d399; font-size:14px;"
+            f" background:transparent; border:none; }}"
         )
-        layout.addWidget(badge)
-
-    def _paint_dot(self):
-        color = "#3fb950" if self.connected else "#555555"
-        self.dot.setStyleSheet(
-            f"color: {color}; font-size: 12px;"
-        )
-
-    def set_connected(self, connected: bool):
-        self.connected = connected
-        self._paint_dot()
 
     def set_selected(self, selected: bool):
         self.selected = selected
-        if selected:
-            self.setStyleSheet(
-                "DeviceCard { background-color: #094771; border: 1px solid #0e639c;"
-                " border-radius: 6px; }")
-        else:
-            self.setStyleSheet(
-                "DeviceCard { background-color: #252526; border: 1px solid #3c3c3c;"
-                " border-radius: 6px; }")
-        # 重建文本样式（setStyleSheet 会覆盖子控件？不会，但保险起见重设）
-        self._reapply_text_style()
+        self._apply_style()
 
-    def _reapply_text_style(self):
-        for label in self.findChildren(QLabel):
-            if label is self.dot:
-                continue
-            if label.text() in ('SSH', 'Telnet', 'Serial'):
-                label.setStyleSheet(
-                    "color: #4fc1ff; border: 1px solid #3c3c3c; border-radius: 3px;"
-                    " padding: 1px 6px; font-size: 10px;")
-            elif label.font().bold():
-                label.setStyleSheet("color: #e8e8e8; font-weight: bold; font-size: 13px;")
-            else:
-                label.setStyleSheet("color: #8a8a8a; font-size: 11px;")
+    def set_connected(self, connected: bool):
+        self.connected = connected
+        self.dot.setVisible(connected)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.config)
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.double_clicked.emit(self.config)
+        super().mouseDoubleClickEvent(event)
+
+    def _on_context(self, pos):
+        self.context_requested.emit(self.config, self.mapToGlobal(pos))
 
 
 class VaultPanel(QWidget):
     """
-    设备库 (Vault) 面板
+    设备库面板
 
     信号:
-        connect_requested(dict):  请求连接某台设备（参数为连接配置）
+        connect_requested(dict):  请求连接
         add_requested():          请求新建连接
-        edit_requested(dict):     请求编辑某台设备
-        delete_requested(dict):   请求删除某台设备
-        selection_changed(dict):  选中设备变化（参数为设备配置，或 None）
+        edit_requested(dict):     请求编辑
+        delete_requested(dict):   请求删除
+        selection_changed(dict):  选中设备变化
     """
 
     connect_requested = pyqtSignal(dict)
@@ -137,146 +182,171 @@ class VaultPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("VaultPanel")
         self._devices = []
         self._connected_keys = set()
         self._selected_key = None
-        self.init_ui()
+        self._init_ui()
 
     # ------------------------------------------------------------ 界面
-    def init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(6)
+    def _init_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 8)
+        root.setSpacing(10)
 
-        # 标题
-        title_row = QHBoxLayout()
-        title = QLabel("设备库  Vault")
-        title.setStyleSheet("color: #9cdcfe; font-weight: bold; font-size: 13px;")
-        title_row.addWidget(title)
-        title_row.addStretch()
-        self.count_label = QLabel("0 台")
-        self.count_label.setStyleSheet("color: #8a8a8a; font-size: 11px;")
-        title_row.addWidget(self.count_label)
-        layout.addLayout(title_row)
+        # 顶部：标题 + 搜索 + 新建按钮
+        header = QHBoxLayout()
+        header.setSpacing(8)
+        self.title = QLabel("设备库")
+        self.title.setObjectName("VaultTitle")
+        self.count = QLabel("0 台")
+        self.count.setObjectName("VaultCount")
+        header.addWidget(self.title)
+        header.addSpacing(6)
+        header.addWidget(self.count)
+        header.addStretch()
+        self.search = QLineEdit()
+        self.search.setObjectName("VaultSearch")
+        self.search.setPlaceholderText("搜索主机 / IP…")
+        self.search.setFixedWidth(120)
+        self.search.textChanged.connect(self._apply_filter)
+        header.addWidget(self.search)
+        self.btn_new = QPushButton("+ 新建")
+        self.btn_new.setObjectName("VaultPrimaryBtn")
+        self.btn_new.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_new.clicked.connect(self.add_requested.emit)
+        header.addWidget(self.btn_new)
+        root.addLayout(header)
 
-        # 设备列表
-        self.list_widget = QListWidget()
-        self.list_widget.setSpacing(4)
-        self.list_widget.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
-        self.list_widget.itemClicked.connect(self.on_item_clicked)
-        self.list_widget.itemDoubleClicked.connect(self.on_item_double_clicked)
-        layout.addWidget(self.list_widget, 1)
+        # 分组标签
+        self.section = QLabel("全部主机")
+        self.section.setObjectName("VaultSection")
+        root.addWidget(self.section)
 
-        # 按钮
-        row1 = QHBoxLayout()
-        self.btn_connect = QPushButton("连接")
-        self.btn_connect.clicked.connect(self.on_connect)
-        self.btn_add = QPushButton("新建")
-        self.btn_add.clicked.connect(lambda: self.add_requested.emit())
-        row1.addWidget(self.btn_connect)
-        row1.addWidget(self.btn_add)
-        layout.addLayout(row1)
+        # 卡片列表
+        self.scroll = QScrollArea()
+        self.scroll.setObjectName("VaultScroll")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.cards_host = QWidget()
+        self.cards_host.setObjectName("VaultCardsHost")
+        self.cards_layout = QVBoxLayout(self.cards_host)
+        self.cards_layout.setContentsMargins(0, 0, 0, 0)
+        self.cards_layout.setSpacing(8)
+        self.cards_layout.addStretch(1)
+        self.scroll.setWidget(self.cards_host)
+        root.addWidget(self.scroll, 1)
 
-        row2 = QHBoxLayout()
-        self.btn_edit = QPushButton("编辑")
-        self.btn_edit.clicked.connect(self.on_edit)
-        self.btn_delete = QPushButton("删除")
-        self.btn_delete.clicked.connect(self.on_delete)
-        row2.addWidget(self.btn_edit)
-        row2.addWidget(self.btn_delete)
-        layout.addLayout(row2)
-
-        hint = QLabel("双击设备即可连接")
-        hint.setStyleSheet("color: #6a6a6a; font-size: 10px;")
-        layout.addWidget(hint)
-
-        self._update_buttons()
+        # 底部提示
+        hint = QLabel("双击连接 · 右键菜单")
+        hint.setObjectName("VaultHint")
+        root.addWidget(hint)
 
     # ------------------------------------------------------------ 数据
     def set_devices(self, devices: list):
-        """用新的设备列表刷新界面"""
         self._devices = list(devices or [])
-        self.list_widget.clear()
-        for config in self._devices:
-            self._append_card(config)
-        self.count_label.setText(f"{len(self._devices)} 台")
-        self._refresh_status_dots()
-        self._update_buttons()
+        self._rebuild_cards()
 
-    def _append_card(self, config: dict):
-        card = DeviceCard(config)
-        item = QListWidgetItem(self.list_widget)
-        item.setData(Qt.ItemDataRole.UserRole, config)
-        item.setSizeHint(QSize(0, 46))
-        self.list_widget.addItem(item)
-        self.list_widget.setItemWidget(item, card)
-        card.set_connected(_device_key(config) in self._connected_keys)
+    def _rebuild_cards(self):
+        # 清理旧卡片（保留最后的 stretch）
+        while self.cards_layout.count() > 1:
+            item = self.cards_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        for cfg in self._devices:
+            card = HostCard(cfg)
+            card.clicked.connect(self._on_card_clicked)
+            card.double_clicked.connect(lambda c=cfg: self.connect_requested.emit(c))
+            card.context_requested.connect(self._show_card_menu)
+            # 插在 stretch 之前
+            self.cards_layout.insertWidget(self.cards_layout.count() - 1, card)
+        self.count.setText(f"{len(self._devices)} 台")
+        self._refresh_connected()
+        self._apply_filter(self.search.text())
 
-    def selected_config(self) -> dict:
-        item = self.list_widget.currentItem()
-        if item is None:
-            return {}
-        return item.data(Qt.ItemDataRole.UserRole) or {}
+    def _on_card_clicked(self, cfg: dict):
+        self._selected_key = _device_key(cfg)
+        self._refresh_selection()
+        self.selection_changed.emit(cfg)
+
+    def _refresh_selection(self):
+        for i in range(self.cards_layout.count()):
+            item = self.cards_layout.itemAt(i)
+            w = item.widget() if item else None
+            if isinstance(w, HostCard):
+                w.set_selected(_device_key(w.config) == self._selected_key)
+
+    def _show_card_menu(self, cfg: dict, global_pos):
+        menu = QMenu(self)
+        menu.addAction("连接")
+        menu.addSeparator()
+        menu.addAction("编辑")
+        menu.addAction("删除")
+        act = menu.exec(global_pos)
+        if act is None:
+            return
+        text = act.text()
+        if text == "连接":
+            self.connect_requested.emit(cfg)
+        elif text == "编辑":
+            self.edit_requested.emit(cfg)
+        elif text == "删除":
+            self.delete_requested.emit(cfg)
 
     def set_connected(self, config: dict, connected: bool = True):
-        """标记某台设备为已连接 / 已断开，并刷新状态点"""
         key = _device_key(config)
         if connected:
             self._connected_keys.add(key)
         else:
             self._connected_keys.discard(key)
-        self._refresh_status_dots()
+        self._refresh_connected()
 
-    def _refresh_status_dots(self):
-        for index in range(self.list_widget.count()):
-            item = self.list_widget.item(index)
-            config = item.data(Qt.ItemDataRole.UserRole)
-            widget = self.list_widget.itemWidget(item)
-            if widget:
-                widget.set_connected(_device_key(config) in self._connected_keys)
+    def _refresh_connected(self):
+        for i in range(self.cards_layout.count()):
+            item = self.cards_layout.itemAt(i)
+            w = item.widget() if item else None
+            if isinstance(w, HostCard):
+                w.set_connected(_device_key(w.config) in self._connected_keys)
 
     def refresh(self):
-        """重新拉取设置里的设备库（外部数据变化时调用）"""
         from config.settings import Settings
         self.set_devices(Settings().get_vault_devices())
 
-    # ------------------------------------------------------------ 交互
-    def on_item_clicked(self, item: QListWidgetItem):
-        config = item.data(Qt.ItemDataRole.UserRole) or {}
-        self._selected_key = _device_key(config)
-        self._highlight_selection()
-        self.selection_changed.emit(config)
+    def selected_config(self) -> dict:
+        for i in range(self.cards_layout.count()):
+            item = self.cards_layout.itemAt(i)
+            w = item.widget() if item else None
+            if isinstance(w, HostCard) and _device_key(w.config) == self._selected_key:
+                return w.config
+        return {}
 
-    def on_item_double_clicked(self, item: QListWidgetItem):
-        config = item.data(Qt.ItemDataRole.UserRole) or {}
-        if config:
-            self.connect_requested.emit(config)
-
-    def on_connect(self):
-        config = self.selected_config()
-        if config:
-            self.connect_requested.emit(config)
-
-    def on_edit(self):
-        config = self.selected_config()
-        if config:
-            self.edit_requested.emit(config)
-
-    def on_delete(self):
-        config = self.selected_config()
-        if config:
-            self.delete_requested.emit(config)
-
-    def _highlight_selection(self):
-        for index in range(self.list_widget.count()):
-            item = self.list_widget.item(index)
-            config = item.data(Qt.ItemDataRole.UserRole)
-            widget = self.list_widget.itemWidget(item)
-            if widget:
-                widget.set_selected(_device_key(config) == self._selected_key)
-
-    def _update_buttons(self):
-        has = (self.list_widget.currentItem() is not None)
-        self.btn_connect.setEnabled(has)
-        self.btn_edit.setEnabled(has)
-        self.btn_delete.setEnabled(has)
+    # ------------------------------------------------------------ 过滤
+    def _apply_filter(self, text: str):
+        text = (text or '').strip().lower()
+        shown = 0
+        for i in range(self.cards_layout.count()):
+            item = self.cards_layout.itemAt(i)
+            w = item.widget() if item else None
+            if not isinstance(w, HostCard):
+                continue
+            if not text:
+                w.show()
+                shown += 1
+                continue
+            c = w.config
+            hay = ' '.join([
+                str(c.get('name', '')),
+                str(c.get('host', '')),
+                str(c.get('serial_port', '')),
+                str(c.get('username', '')),
+                str(c.get('vendor', '')),
+            ]).lower()
+            ok = text in hay
+            w.setVisible(ok)
+            if ok:
+                shown += 1
+        if text:
+            self.count.setText(f"{shown} / {len(self._devices)} 台")
+        else:
+            self.count.setText(f"{len(self._devices)} 台")

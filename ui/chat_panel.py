@@ -35,11 +35,11 @@ class ChatInput(QPlainTextEdit):
             "· 这台设备怎么配置端口镜像？\n"
             "（Enter 发送，Shift+Enter 换行）"
         )
-        self.setFixedHeight(76)
+        self.setFixedHeight(60)
         self.setStyleSheet(
-            "QPlainTextEdit { background-color: #1e1e1e; color: #d4d4d4;"
-            " border: 1px solid #3c3c3c; border-radius: 6px; padding: 6px; }"
-            "QPlainTextEdit:focus { border-color: #0e639c; }"
+            "QPlainTextEdit { background-color: #21262d; color: #e6edf3;"
+            " border: 1px solid #3a4049; border-radius: 10px; padding: 8px 10px; }"
+            "QPlainTextEdit:focus { border-color: #22d3ee; }"
         )
 
     def keyPressEvent(self, event):
@@ -77,7 +77,7 @@ class ChatView(QWidget):
         self._device_text = "未连接设备"
         self._model_text = ""
         self.init_ui()
-        self.add_system("选择一台设备并连接后，我就可以帮你巡检、排错、生成命令。")
+        # 初始为空，由 empty-state 显示欢迎语
 
     # ------------------------------------------------------------ 界面
     def init_ui(self):
@@ -89,8 +89,8 @@ class ChatView(QWidget):
         self.device_bar = QLabel("")
         self.device_bar.setWordWrap(True)
         self.device_bar.setStyleSheet(
-            "background-color: #252526; color: #9cdcfe; padding: 6px 8px;"
-            " border: 1px solid #3c3c3c; border-radius: 6px; font-size: 12px;"
+            "background-color: #21262d; color: #22d3ee; padding: 6px 10px;"
+            " border: 1px solid #3a4049; border-radius: 8px; font-size: 12px;"
         )
         layout.addWidget(self.device_bar)
 
@@ -99,29 +99,35 @@ class ChatView(QWidget):
         self.view.setOpenLinks(False)
         self.view.anchorClicked.connect(self.on_anchor_clicked)
         self.view.setStyleSheet(
-            "QTextBrowser { background-color: #1b1b1c; border: 1px solid #3c3c3c;"
-            " border-radius: 6px; padding: 6px; }"
+            "QTextBrowser { background-color: #1e2227; border: 1px solid #3a4049;"
+            " border-radius: 8px; padding: 8px; }"
         )
         layout.addWidget(self.view, 1)
 
-        # 输入区
+        # 输入区：输入框 + 圆形青色发送按钮
+        input_row = QHBoxLayout()
+        input_row.setSpacing(8)
         self.input = ChatInput()
         self.input.submitted.connect(self.on_send)
-        layout.addWidget(self.input)
+        input_row.addWidget(self.input, 1)
 
-        row = QHBoxLayout()
-        row.setSpacing(4)
-
-        self.btn_send = QPushButton("发送")
-        self.btn_send.setMinimumWidth(72)
+        self.btn_send = QPushButton("↑")
+        self.btn_send.setFixedSize(40, 40)
+        self.btn_send.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_send.setStyleSheet(
-            "QPushButton { background-color: #0e639c; color: #ffffff; border: none;"
-            " padding: 6px 14px; border-radius: 4px; }"
-            "QPushButton:hover { background-color: #1177bb; }"
-            "QPushButton:disabled { background-color: #3c3c3c; color: #8a8a8a; }"
+            "QPushButton { background-color: #22d3ee; color: #0b1a1f; border: none;"
+            " border-radius: 20px; font-size: 18px; font-weight: bold; }"
+            "QPushButton:hover { background-color: #67e8f9; }"
+            "QPushButton:pressed { background-color: #0891b2; }"
+            "QPushButton:disabled { background-color: #2a2d31; color: #5a6068; }"
         )
         self.btn_send.clicked.connect(self.on_send)
-        row.addWidget(self.btn_send)
+        input_row.addWidget(self.btn_send)
+        layout.addLayout(input_row)
+
+        # 辅助操作
+        row = QHBoxLayout()
+        row.setSpacing(4)
 
         for text, tip, handler in (
             ("解释输出", "让 AI 用中文解释当前终端里的内容", self.explain_requested.emit),
@@ -133,15 +139,15 @@ class ChatView(QWidget):
             button.setToolTip(tip)
             button.clicked.connect(handler)
             button.setStyleSheet(
-                "QToolButton { color: #cccccc; background-color: #2d2d30;"
-                " border: 1px solid #3c3c3c; padding: 4px 8px; border-radius: 4px; }"
-                "QToolButton:hover { background-color: #3c3c3c; }"
+                "QToolButton { color: #9aa7b8; background-color: transparent;"
+                " border: none; padding: 3px 8px; font-size: 11px; }"
+                "QToolButton:hover { color: #22d3ee; }"
             )
             row.addWidget(button)
         row.addStretch()
 
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: #8a8a8a; font-size: 11px;")
+        self.status_label.setStyleSheet("color: #6b7480; font-size: 11px;")
         row.addWidget(self.status_label)
         layout.addLayout(row)
 
@@ -244,27 +250,32 @@ class ChatView(QWidget):
     # ------------------------------------------------------------ 渲染
     def _render(self):
         html = [self._style_block()]
-        for message in self.messages:
-            role = message.get("role")
-            if role == "user":
-                html.append(self._user_bubble(message["text"]))
-            elif role == "ai":
-                html.append(self._ai_bubble(message))
-            elif role == "system":
-                html.append(self._system_line(message["text"], "#8a8a8a"))
-            elif role == "error":
-                html.append(self._system_line("⚠ " + message["text"], "#f14c4c"))
+        if not self.messages:
+            html.append(self._empty_state_html())
+        else:
+            for message in self.messages:
+                role = message.get("role")
+                if role == "user":
+                    html.append(self._user_bubble(message["text"]))
+                elif role == "ai":
+                    html.append(self._ai_bubble(message))
+                elif role == "system":
+                    html.append(self._system_line(message["text"], "#9aa7b8"))
+                elif role == "error":
+                    html.append(self._system_line("⚠ " + message["text"], "#f87171"))
         self.view.setHtml("".join(html))
-        self.view.verticalScrollBar().setValue(
-            self.view.verticalScrollBar().maximum())
+        sb = self.view.verticalScrollBar()
+        sb.setValue(sb.maximum())
 
     @staticmethod
     def _style_block() -> str:
         return ("<style>"
-                "body { color: #d4d4d4; font-family: 'Microsoft YaHei', sans-serif;"
+                "body { color: #e6edf3; font-family: 'Microsoft YaHei', sans-serif;"
                 " font-size: 13px; }"
-                "a { color: #4fc1ff; text-decoration: none; }"
-                "code { background-color: #2d2d30; color: #ce9178; }"
+                "a { color: #22d3ee; text-decoration: none; }"
+                "a:hover { text-decoration: underline; }"
+                "code { background-color: #2a2d31; color: #ce9178; padding: 1px 4px;"
+                " border-radius: 3px; }"
                 "</style>")
 
     @staticmethod
@@ -273,8 +284,9 @@ class ChatView(QWidget):
         return (
             '<table width="100%" cellspacing="0" cellpadding="0"><tr>'
             '<td align="right">'
-            '<table cellspacing="0" cellpadding="7" bgcolor="#0e639c">'
-            f'<tr><td><span style="color:#ffffff;">{safe}</span></td></tr>'
+            '<table cellspacing="0" cellpadding="8" bgcolor="#1f3a3d" width="86%" '
+            'style="border:1px solid #22d3ee;border-radius:8px;">'
+            f'<tr><td><span style="color:#e6edf3;font-size:13px;">{safe}</span></td></tr>'
             '</table></td></tr></table><div style="height:6px;"></div>'
         )
 
@@ -284,15 +296,16 @@ class ChatView(QWidget):
         plan = self._plan_card(commands, message.get("plan_id"),
                                skipped=message.get("skipped", False)) if commands else ""
         notes = message.get("notes", "")
-        notes_html = (f'<div style="color:#dcdcaa;font-size:11px;margin-top:4px;">'
+        notes_html = (f'<div style="color:#fbbf24;font-size:11px;margin-top:4px;">'
                       f'{html_mod.escape(notes)}</div>') if notes else ""
-        model = (f'<span style="color:#6a6a6a;font-size:10px;">{html_mod.escape(self._model_text)}</span>'
+        model = (f'<span style="color:#6b7480;font-size:10px;">{html_mod.escape(self._model_text)}</span>'
                  if self._model_text else "")
         return (
             '<table width="100%" cellspacing="0" cellpadding="0"><tr><td align="left">'
-            '<table cellspacing="0" cellpadding="8" bgcolor="#252526" width="96%">'
-            f'<tr><td><div style="color:#4ec9b0;font-size:11px;">AI 助手　{model}</div>'
-            f'<div style="color:#d4d4d4;">{text}</div>{notes_html}{plan}</td></tr>'
+            '<table cellspacing="0" cellpadding="10" bgcolor="#21262d" '
+            'style="border:1px solid #3a4049;border-radius:8px;" width="96%">'
+            f'<tr><td><div style="color:#22d3ee;font-size:11px;font-weight:bold;">AI 助手　{model}</div>'
+            f'<div style="color:#e6edf3;">{text}</div>{notes_html}{plan}</td></tr>'
             '</table></td></tr></table><div style="height:6px;"></div>'
         )
 
@@ -302,12 +315,12 @@ class ChatView(QWidget):
             safe = html_mod.escape(str(command))
             rows.append(
                 '<tr>'
-                f'<td width="24" align="right" style="color:#6a6a6a;">{index}.</td>'
+                f'<td width="24" align="right" style="color:#6b7480;">{index}.</td>'
                 f'<td><span style="color:#ce9178;font-family:Consolas,monospace;">{safe}</span></td>'
                 '</tr>'
             )
         if skipped:
-            actions = '<span style="color:#6a6a6a;">（已跳过）</span>'
+            actions = '<span style="color:#6b7480;">（已跳过）</span>'
         else:
             actions = (
                 f'<a href="#exec:{plan_id}">▶ 执行</a>　'
@@ -315,13 +328,26 @@ class ChatView(QWidget):
                 f'<a href="#skip:{plan_id}">✕ 跳过</a>'
             )
         return (
-            '<table width="100%" cellspacing="0" cellpadding="4" bgcolor="#1b1b1c">'
+            '<table width="100%" cellspacing="0" cellpadding="8" bgcolor="#1a1f25" '
+            'style="border:1px solid #3a4049;border-radius:6px;margin-top:8px;">'
             '<tr><td>'
-            f'<div style="color:#dcdcaa;font-size:11px;">命令计划（{len(commands)} 条）'
-            '　配置类命令会先弹确认框</div>'
-            f'<table cellspacing="0" cellpadding="2">{"".join(rows)}</table>'
+            f'<div style="color:#fbbf24;font-size:11px;font-weight:bold;">命令计划（{len(commands)} 条）'
+            '　<span style="color:#6b7480;font-weight:normal;">配置类命令会先弹确认框</span></div>'
+            f'<table cellspacing="0" cellpadding="3">{"".join(rows)}</table>'
             f'<div style="margin-top:6px;">{actions}</div>'
             '</td></tr></table>'
+        )
+
+    @staticmethod
+    def _empty_state_html() -> str:
+        return (
+            '<div style="height:200px;"></div>'
+            '<div style="text-align:center;color:#6b7480;font-size:13px;">'
+            '<div style="font-size:32px;color:#22d3ee;margin-bottom:8px;">▣</div>'
+            '询问服务器相关问题、执行命令或获取配置帮助。<br/>'
+            '<span style="font-size:11px;color:#5a6068;">'
+            '连接一台设备后，我就能直接读输出、生成命令并执行。</span>'
+            '</div>'
         )
 
     @staticmethod

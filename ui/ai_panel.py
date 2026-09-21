@@ -130,7 +130,7 @@ class AIPanel(QWidget):
 
         self.provider_hint = QLabel("")
         self.provider_hint.setWordWrap(True)
-        self.provider_hint.setStyleSheet("color: #8a8a8a; font-size: 11px;")
+        self.provider_hint.setStyleSheet("color: #9aa7b8; font-size: 11px;")
         api_layout.addWidget(self.provider_hint)
 
         api_group.setLayout(api_layout)
@@ -174,7 +174,7 @@ class AIPanel(QWidget):
         self.screen_preview.setMaximumHeight(110)
         self.screen_preview.setPlaceholderText("会话建立后这里显示最近捕获到的设备输出")
         self.screen_preview.setStyleSheet(
-            "background-color: #1e1e1e; color: #9a9a9a; font-family: Consolas; font-size: 11px;"
+            "background-color: #1a1f25; color: #9aa7b8; font-family: Consolas; font-size: 11px;"
         )
         screen_layout.addWidget(self.screen_preview)
         screen_group.setLayout(screen_layout)
@@ -187,8 +187,8 @@ class AIPanel(QWidget):
         self.ai_output.setReadOnly(True)
         self.ai_output.setStyleSheet("""
             QTextEdit {
-                background-color: #2d2d2d;
-                color: #9cdcfe;
+                background-color: #1e2227;
+                color: #67e8f9;
             }
         """)
         output_layout.addWidget(self.ai_output)
@@ -244,7 +244,7 @@ class AIPanel(QWidget):
 
         self.kb_status = QLabel("尚未导入资料")
         self.kb_status.setWordWrap(True)
-        self.kb_status.setStyleSheet("color: #8a8a8a;")
+        self.kb_status.setStyleSheet("color: #9aa7b8;")
         kb_layout.addWidget(self.kb_status)
 
         kb_row = QHBoxLayout()
@@ -346,7 +346,7 @@ class AIPanel(QWidget):
         self.research_output = QTextEdit()
         self.research_output.setReadOnly(True)
         self.research_output.setStyleSheet(
-            "background-color: #2d2d2d; color: #ce9178;"
+            "background-color: #1e2227; color: #ce9178;"
         )
         answer_layout.addWidget(self.research_output)
         answer_group.setLayout(answer_layout)
@@ -372,7 +372,7 @@ class AIPanel(QWidget):
 
         tip = QLabel("AI 生成的命令会进入这里。勾选后点“执行勾选项”批量下发，双击可编辑。")
         tip.setWordWrap(True)
-        tip.setStyleSheet("color: #8a8a8a;")
+        tip.setStyleSheet("color: #9aa7b8;")
         layout.addWidget(tip)
 
         self.queue_list = QListWidget()
@@ -414,7 +414,7 @@ class AIPanel(QWidget):
         layout.addLayout(row2)
 
         self.queue_status = QLabel("队列为空")
-        self.queue_status.setStyleSheet("color: #8a8a8a;")
+        self.queue_status.setStyleSheet("color: #9aa7b8;")
         layout.addWidget(self.queue_status)
 
         return page

@@ -55,10 +55,10 @@ class TerminalWidget(QWidget):
         self.text_edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.text_edit.setStyleSheet("""
             QTextEdit {
-                background-color: #1e1e1e;
-                color: #d4d4d4;
+                background-color: #1e2227;
+                color: #e6edf3;
                 border: none;
-                selection-background-color: #264f78;
+                selection-background-color: rgba(34, 211, 238, 0.3);
             }
         """)
 
@@ -68,16 +68,16 @@ class TerminalWidget(QWidget):
 
         # 输入回显条
         bar = QWidget()
-        bar.setStyleSheet("background-color: #252526; border-top: 1px solid #3c3c3c;")
+        bar.setStyleSheet("background-color: #21262d; border-top: 1px solid #3a4049;")
         bar_layout = QHBoxLayout(bar)
         bar_layout.setContentsMargins(6, 2, 6, 2)
         self.input_label = QLabel("")
         self.input_label.setFont(QFont("Consolas", 10))
-        self.input_label.setStyleSheet("color: #4ec9b0;")
+        self.input_label.setStyleSheet("color: #67e8f9;")
         bar_layout.addWidget(self.input_label)
         bar_layout.addStretch()
         self.hint_label = QLabel("Enter 发送 · ↑↓ 历史 · Ctrl+C 中断 · Ctrl+L 清屏")
-        self.hint_label.setStyleSheet("color: #6a6a6a; font-size: 11px;")
+        self.hint_label.setStyleSheet("color: #6b7480; font-size: 11px;")
         bar_layout.addWidget(self.hint_label)
         layout.addWidget(bar)
 
