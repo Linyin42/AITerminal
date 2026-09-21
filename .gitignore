@@ -8,6 +8,9 @@ dist/
 venv/
 env/
 
+# 历史构建归档（保留在本地但不入 git）
+old_builds/
+
 # PyInstaller
 *.spec
 
