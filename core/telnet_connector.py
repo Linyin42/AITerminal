@@ -171,6 +171,17 @@ PASSWORD_PROMPTS = (
 )
 # 登录成功后常见的提示（用来确认已进入设备）
 PROMPT_TAILS = (b">", b"#", b"]", b"$")
+# 登录失败的标识（H3C / 华为 / Cisco 常见写法）
+FAIL_PATTERNS = (
+    b"wrong password",
+    b"login failed",
+    b"authentication failed",
+    b"invalid password",
+    b"% login",                # 部分设备前缀带 %
+    b"login incorrect",
+    b"access denied",
+    b"password: ",             # 失败后再次要求密码
+)
 
 
 class TelnetConnector(BaseConnector):
@@ -257,6 +268,7 @@ class TelnetConnector(BaseConnector):
                 matched = self._login_read_until_any(all_prompts, timeout=short)
 
             # 2) 用户名
+            password_attempted = False
             if username:
                 if matched in USERNAME_PROMPTS or self._login_read_until_any(
                         USERNAME_PROMPTS, timeout=min(3.0, float(timeout))):
@@ -267,15 +279,37 @@ class TelnetConnector(BaseConnector):
                             PASSWORD_PROMPTS, timeout=min(4.0, float(timeout))):
                         self.tn.write(password.encode() + b"\n")
                         self._login_buffer = b""
+                        password_attempted = True
                 elif password and self._login_read_until_any(PASSWORD_PROMPTS, timeout=1.5):
                     # 只要求密码的设备
                     self.tn.write(password.encode() + b"\n")
                     self._login_buffer = b""
+                    password_attempted = True
             elif password:
                 if matched in PASSWORD_PROMPTS or self._login_read_until_any(
                         PASSWORD_PROMPTS, timeout=min(3.0, float(timeout))):
                     self.tn.write(password.encode() + b"\n")
                     self._login_buffer = b""
+                    password_attempted = True
+
+            # 4) 登录后验证：等待成功提示符 (> # 等) 或失败标识。
+            #    若设备是"静默登录"（不吐任何东西就进入命令模式），到点就当成功。
+            #    失败时立刻关连接，否则后续 send() 会被设备当成密码重试，
+            #    几次就触发 H3C 默认的 5 分钟锁定。
+            if password_attempted:
+                verify = self._login_read_until_any(
+                    PROMPT_TAILS + FAIL_PATTERNS,
+                    timeout=min(3.0, float(timeout)),
+                )
+                if verify in FAIL_PATTERNS:
+                    try:
+                        self.tn.close()
+                    except Exception:
+                        pass
+                    msg = verify.decode("utf-8", errors="replace").strip()
+                    self.error_occurred.emit(
+                        f"Telnet登录失败：设备返回 \"{msg}\"")
+                    return False
 
             self._host = host
             self._params = {'host': host, 'port': port, 'username': username}
