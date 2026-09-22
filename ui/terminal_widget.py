@@ -36,8 +36,17 @@ class TerminalWidget(QWidget):
         self.setProperty('session_id', session_id)
 
     def set_local_echo(self, enabled: bool):
-        """本地回显开关（串口 Console 建议开启）"""
+        """
+        本地回显开关。
+
+        开启（默认，串口/Console 用）：输入**直接内联显示在终端正文里**，
+            底部那条 `❯` 回显栏隐藏 —— 否则同一段输入会显示两遍。
+            这样按 Tab 补全时，补全内容会紧接着你敲的字出现，符合直觉。
+        关闭（设备自带回显时用）：输入只进底部回显栏，正文等设备回显。
+        """
         self.local_echo = bool(enabled)
+        if hasattr(self, "input_label"):
+            self.input_label.setVisible(not self.local_echo)
         self._refresh_input_bar()
 
     # ------------------------------------------------------------ 界面
@@ -78,10 +87,11 @@ class TerminalWidget(QWidget):
         self.text_edit.keyPressEvent = self.handle_key_press
         layout.addWidget(self.text_edit, 1)
 
-        # 输入回显条
-        bar = QWidget()
-        bar.setStyleSheet("background-color: #171a24; border-top: 1px solid #2b3143;")
-        bar_layout = QHBoxLayout(bar)
+        # 输入提示条（本地回显开启时只留右侧快捷键提示）
+        self.input_bar = QWidget()
+        self.input_bar.setStyleSheet(
+            "background-color: #171a24; border-top: 1px solid #2b3143;")
+        bar_layout = QHBoxLayout(self.input_bar)
         bar_layout.setContentsMargins(6, 2, 6, 2)
         self.input_label = QLabel("")
         self.input_label.setFont(QFont("Consolas", 10))
@@ -91,7 +101,7 @@ class TerminalWidget(QWidget):
         self.hint_label = QLabel("Enter 发送 · ↑↓ 历史 · Ctrl+C 中断 · Ctrl+L 清屏")
         self.hint_label.setStyleSheet("color: #666e82; font-size: 11px;")
         bar_layout.addWidget(self.hint_label)
-        layout.addWidget(bar)
+        layout.addWidget(self.input_bar)
 
         self._refresh_input_bar()
 

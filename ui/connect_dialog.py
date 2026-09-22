@@ -438,7 +438,12 @@ class ConnectDialog(QDialog):
             self.chk_auto_reconnect.setChecked(bool(config['auto_reconnect']))
         if config.get('reconnect_interval'):
             self.reconnect_spin.setValue(float(config['reconnect_interval']))
-        if config.get('local_echo') is not None:
+        # 本地回显：串口一律默认开启。
+        # 旧版默认值是 False，导致串口"敲字没反应"；设备库里存的老配置也都是
+        # False，所以串口不沿用历史值（用户仍可在对话框里临时取消）。
+        if config.get('protocol') == 'Serial':
+            self.chk_local_echo.setChecked(True)
+        elif config.get('local_echo') is not None:
             self.chk_local_echo.setChecked(bool(config['local_echo']))
         # 配置里带密码就回填（设备库存的是脱敏配置，通常没有；上次连接可能有）
         if config.get('password'):
