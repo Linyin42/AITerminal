@@ -90,7 +90,7 @@ class ChatView(QWidget):
         self.device_bar.setWordWrap(True)
         self.device_bar.setStyleSheet(
             "background-color: #171a24; color: #7c8cf8; padding: 6px 10px;"
-            " border: 1px solid #2b3143; border-radius: 8px; font-size: 12px;"
+            " border: 1px solid rgba(43, 49, 67, 0.8); border-radius: 12px; font-size: 12px;"
         )
         layout.addWidget(self.device_bar)
 
@@ -100,7 +100,7 @@ class ChatView(QWidget):
         self.view.anchorClicked.connect(self.on_anchor_clicked)
         self.view.setStyleSheet(
             "QTextBrowser { background-color: #12141c; border: 1px solid #2b3143;"
-            " border-radius: 8px; padding: 8px; }"
+            " border-radius: 12px; padding: 10px; }"
         )
         layout.addWidget(self.view, 1)
 
@@ -285,7 +285,7 @@ class ChatView(QWidget):
             '<table width="100%" cellspacing="0" cellpadding="0"><tr>'
             '<td align="right">'
             '<table cellspacing="0" cellpadding="8" bgcolor="#232a45" width="86%" '
-            'style="border:1px solid #7c8cf8;border-radius:8px;">'
+            'style="border:1px solid #7c8cf8;border-radius:10px;">'
             f'<tr><td><span style="color:#e6e9f2;font-size:13px;">{safe}</span></td></tr>'
             '</table></td></tr></table><div style="height:6px;"></div>'
         )
@@ -303,7 +303,7 @@ class ChatView(QWidget):
         return (
             '<table width="100%" cellspacing="0" cellpadding="0"><tr><td align="left">'
             '<table cellspacing="0" cellpadding="10" bgcolor="#171a24" '
-            'style="border:1px solid #2b3143;border-radius:8px;" width="96%">'
+            'style="border:1px solid #2b3143;border-radius:10px;" width="96%">'
             f'<tr><td><div style="color:#7c8cf8;font-size:11px;font-weight:bold;">AI 助手　{model}</div>'
             f'<div style="color:#e6e9f2;">{text}</div>{notes_html}{plan}</td></tr>'
             '</table></td></tr></table><div style="height:6px;"></div>'
