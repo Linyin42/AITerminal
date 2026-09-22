@@ -51,7 +51,7 @@ def _icon_color(cfg: dict) -> str:
         return '#f59e0b'  # 琥珀
     if p == 'serial':
         return '#10b981'  # 翠绿
-    return '#22d3ee'      # 青（默认 SSH）
+    return '#7c8cf8'      # 靛蓝（默认 SSH，与主题强调色一致）
 
 
 def _subtitle(cfg: dict) -> str:
@@ -124,19 +124,19 @@ class HostCard(QFrame):
 
     def _apply_style(self):
         if self.selected:
-            bg, border = '#1f3a3d', '#22d3ee'
+            bg, border = '#232a45', '#7c8cf8'
         else:
-            bg, border = '#262a31', '#3a4049'
+            bg, border = '#1e222f', '#2b3143'
         self.setStyleSheet(
             f"QFrame#HostCard {{ background:{bg}; border:1px solid {border}; border-radius:12px; }}"
-            f"QFrame#HostCard:hover {{ background:#2d323a; border-color:#4a525d; }}"
+            f"QFrame#HostCard:hover {{ background:#242938; border-color:#39415a; }}"
             f"QLabel#HostCardIcon {{ background:{_icon_color(self.config)}; color:#ffffff;"
             f" border-radius:22px; font-weight:bold; font-size:16px; }}"
-            f"QLabel#HostCardTitle {{ color:#e6edf3; font-weight:bold; font-size:13px;"
+            f"QLabel#HostCardTitle {{ color:#e6e9f2; font-weight:bold; font-size:13px;"
             f" background:transparent; border:none; }}"
-            f"QLabel#HostCardSub {{ color:#9aa7b8; font-size:11px;"
+            f"QLabel#HostCardSub {{ color:#98a1b5; font-size:11px;"
             f" background:transparent; border:none; }}"
-            f"QLabel#HostCardDot {{ color:#34d399; font-size:14px;"
+            f"QLabel#HostCardDot {{ color:#3fb950; font-size:14px;"
             f" background:transparent; border:none; }}"
         )
 

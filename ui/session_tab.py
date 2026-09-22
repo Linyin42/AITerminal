@@ -38,20 +38,20 @@ class SessionTab(QWidget):
 
         # 顶部信息条
         bar = QWidget()
-        bar.setStyleSheet("background-color: #21262d; border-bottom: 1px solid #3a4049;")
+        bar.setStyleSheet("background-color: #171a24; border-bottom: 1px solid #2b3143;")
         bar_layout = QHBoxLayout(bar)
         bar_layout.setContentsMargins(8, 4, 8, 4)
 
         self.status_dot = QLabel("●")
-        self.status_dot.setStyleSheet("color: #67e8f9;")
+        self.status_dot.setStyleSheet("color: #98a5ff;")
         bar_layout.addWidget(self.status_dot)
 
         self.name_label = QLabel(name)
-        self.name_label.setStyleSheet("color: #e6edf3; font-weight: bold;")
+        self.name_label.setStyleSheet("color: #e6e9f2; font-weight: bold;")
         bar_layout.addWidget(self.name_label)
 
         self.info_label = QLabel(info_text)
-        self.info_label.setStyleSheet("color: #9aa7b8;")
+        self.info_label.setStyleSheet("color: #98a1b5;")
         bar_layout.addWidget(self.info_label)
         bar_layout.addStretch()
 
@@ -89,10 +89,10 @@ class SessionTab(QWidget):
     def set_status(self, connected: bool, text: str = ""):
         """更新连接状态指示灯"""
         if connected:
-            self.status_dot.setStyleSheet("color: #67e8f9;")
+            self.status_dot.setStyleSheet("color: #98a5ff;")
             self.status_dot.setToolTip("已连接")
         else:
-            self.status_dot.setStyleSheet("color: #f14c4c;")
+            self.status_dot.setStyleSheet("color: #f85149;")
             self.status_dot.setToolTip("已断开")
         if text:
             self.info_label.setText(text)
