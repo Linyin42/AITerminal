@@ -211,7 +211,12 @@ class ConnectDialog(QDialog):
         layout.addWidget(self.hint_label)
 
         # 记住密码
-        self.chk_remember = QCheckBox("记住该连接（下次自动填充）")
+        self.chk_remember = QCheckBox("记住该连接（含密码，下次自动填充）")
+        self.chk_remember.setToolTip(
+            "勾选后，本次填写的连接参数（包括密码）会保存到本机配置文件\n"
+            "%USERPROFILE%\\.aiterminal\\settings.json 中，下次打开对话框自动填充。\n"
+            "密码以明文存储，共用电脑请勿勾选。"
+        )
         layout.addWidget(self.chk_remember)
 
         # 按钮
@@ -357,7 +362,7 @@ class ConnectDialog(QDialog):
             self.port_spin.setValue(defaults['port'])
 
     def load_last(self):
-        """载入上次使用的连接参数"""
+        """载入上次使用的连接参数（含密码，若上次勾了"记住"）"""
         last = self.settings.get_last_connection()
         if not last:
             return
@@ -368,6 +373,13 @@ class ConnectDialog(QDialog):
         self.port_spin.setValue(last.get('port', 22))
         if last.get('serial_port'):
             self.serial_port.setCurrentText(last['serial_port'])
+        # 密码：只在"记住"过的时候才有存，有就回填
+        # （之前漏了这一步 —— 勾了记住也不会自动填充，白让用户重输）
+        if last.get('password'):
+            self.password_input.setText(last['password'])
+        key_file = last.get('key_filename', '')
+        if key_file:
+            self.key_input.setText(key_file)
         self.chk_remember.setChecked(bool(last.get('remember')))
 
     # ------------------------------------------------------------ 校验
@@ -424,6 +436,9 @@ class ConnectDialog(QDialog):
             self.reconnect_spin.setValue(float(config['reconnect_interval']))
         if config.get('local_echo') is not None:
             self.chk_local_echo.setChecked(bool(config['local_echo']))
+        # 配置里带密码就回填（设备库存的是脱敏配置，通常没有；上次连接可能有）
+        if config.get('password'):
+            self.password_input.setText(config['password'])
         self.chk_remember.setChecked(bool(config.get('remember', False)))
 
     def get_config(self) -> dict:

@@ -247,12 +247,18 @@ class Settings:
         return last or None
 
     def set_last_connection(self, config: Dict[str, Any]):
-        safe = {k: v for k, v in config.items() if k != 'remember'}
-        self._data["last_connection"] = safe
-        self.add_recent_connection(safe)
+        """
+        记录"上次连接"。
+
+        注意：**必须保留 remember 标志**。曾经这里把它剥掉了，导致：
+        勾"记住"连接后，下次打开对话框复选框是未勾选状态 → 用户直接点连接
+        → remember=False → 已存的密码又被过滤掉 → "记住"只能撑一次。
+        """
+        self._data["last_connection"] = dict(config)
+        self.add_recent_connection(config)
 
     def add_recent_connection(self, config: Dict[str, Any]):
-        """维护最近连接列表（最多10条，按 host+port 去重）"""
+        """维护最近连接列表（最多10条，按 host+port 去重；**不存密码**）"""
         recents = list(self.get("recent_connections") or [])
         key = (config.get('protocol'), config.get('host'), config.get('port'))
         recents = [
