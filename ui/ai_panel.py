@@ -7,6 +7,7 @@ AI面板 - AI 辅助 / 联网查询 / 待执行命令
     3. 待执行    —— AI 生成的命令进入待执行队列，人工勾选后批量下发
 """
 import os
+import threading
 import time
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
@@ -17,7 +18,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QUrl
 from PyQt6.QtGui import QDesktopServices
 
-from core.llm import PROVIDERS, provider_defaults, provider_label
+from core.llm import PROVIDERS, LLMClient, LLMError, provider_defaults, provider_label
 from config.settings import Settings
 from config.presets import TASK_TEMPLATES, get_vendor_commands
 from ui.output_highlighter import OutputHighlighter
@@ -55,6 +56,7 @@ class AIPanel(QWidget):
     explain_requested = pyqtSignal()
     auto_mode_changed = pyqtSignal(bool)
     credentials_changed = pyqtSignal(dict)   # {provider, api_key, model, base_url}
+    connection_tested = pyqtSignal(bool, str)  # 测试连接结果: 是否成功, 说明文字
     research_requested = pyqtSignal(str)
     search_config_changed = pyqtSignal()
     queue_execute_requested = pyqtSignal(list)
@@ -128,6 +130,21 @@ class AIPanel(QWidget):
         self.model_combo.currentTextChanged.connect(self.on_credentials_changed)
         model_row.addWidget(self.model_combo, 1)
         api_layout.addLayout(model_row)
+
+        # 测试连接：用当前填写的内容（不必先保存）发一次最小请求
+        test_row = QHBoxLayout()
+        self.btn_test = QPushButton("测试连接")
+        self.btn_test.setToolTip(
+            "用当前填写的内容（不必先保存）发一次最小请求，\n"
+            "验证 API Key / 接口地址 / 模型是否可用")
+        self.btn_test.clicked.connect(self.on_test_connection)
+        test_row.addWidget(self.btn_test)
+        self.test_result = QLabel("")
+        self.test_result.setWordWrap(True)
+        self.test_result.setStyleSheet("color: #98a1b5; font-size: 11px;")
+        test_row.addWidget(self.test_result, 1)
+        api_layout.addLayout(test_row)
+        self.connection_tested.connect(self._on_test_finished)
 
         self.provider_hint = QLabel("")
         self.provider_hint.setWordWrap(True)
@@ -543,6 +560,67 @@ class AIPanel(QWidget):
             "provider": provider, "api_key": key,
             "model": model, "base_url": base_url,
         })
+
+    # ------------------------------------------------------------ 测试连接
+    def on_test_connection(self):
+        """
+        用**当前输入框里的值**（不必先保存）发一次最小请求验证连通性。
+
+        注意：故意不用已保存的值 —— 用户改了 Key 还没失焦保存就点测试，
+        测旧值等于白测。也不阻断保存：网络临时不通时照样能存 Key。
+        """
+        provider = self.get_provider()
+        api_key = self.get_api_key()
+        model = self.get_model()
+        base_url = self.get_base_url()
+
+        if not api_key:
+            self._set_test_result("请先填写 API Key", ok=False)
+            return
+        if provider != "anthropic" and not base_url:
+            self._set_test_result("请先填写接口地址", ok=False)
+            return
+
+        self.btn_test.setEnabled(False)
+        self._set_test_result("测试中…", ok=None)
+        threading.Thread(
+            target=self._test_worker,
+            args=(provider, api_key, model, base_url),
+            daemon=True,
+        ).start()
+
+    def _test_worker(self, provider: str, api_key: str, model: str, base_url: str):
+        """后台线程里跑网络请求，结果通过信号回主线程（不能直接碰控件）"""
+        try:
+            client = LLMClient(provider=provider, api_key=api_key,
+                               model=model, base_url=base_url)
+            client.chat(
+                "You are a connectivity probe. Reply with exactly: ok",
+                [{"role": "user", "content": "ping"}],
+                max_tokens=8,      # 最小请求，成本可忽略
+            )
+            self.connection_tested.emit(True, f"已连通 · {model}")
+        except LLMError as e:
+            # LLMError 的文案已经是翻译过的人话（401/网络不可达等）
+            self.connection_tested.emit(False, str(e))
+        except Exception as e:
+            self.connection_tested.emit(False, f"{type(e).__name__}: {e}")
+
+    def _on_test_finished(self, ok: bool, message: str):
+        self.btn_test.setEnabled(True)
+        self._set_test_result(message, ok=ok)
+
+    def _set_test_result(self, text: str, ok):
+        """ok: True 成功 / False 失败 / None 进行中"""
+        if ok is True:
+            color, prefix = "#3fb950", "✓ "
+        elif ok is False:
+            color, prefix = "#f85149", "✗ "
+        else:
+            color, prefix = "#98a1b5", ""
+        self.test_result.setText(prefix + text)
+        self.test_result.setStyleSheet(f"color: {color}; font-size: 11px;")
+        self.test_result.setToolTip(text)
 
     def on_template_selected(self, text: str):
         if text and not text.startswith("—"):

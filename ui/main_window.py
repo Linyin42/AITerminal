@@ -117,12 +117,17 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("就绪")
         self.status_session = QLabel("无活动会话")
+        self.status_api = QLabel("API: 未配置")
         self.status_ai = QLabel("AI: OFF")
         self.status_bar.addPermanentWidget(self.status_session)
+        self.status_bar.addPermanentWidget(self.status_api)
         self.status_bar.addPermanentWidget(self.status_ai)
 
         # 应用样式表
         self.apply_style()
+
+        # 启动时按已保存的凭据初始化 API 状态指示（未验证态）
+        self.update_api_status()
 
     def apply_style(self):
         """载入 QSS 样式表，缺失时使用内置暗色样式"""
@@ -388,6 +393,7 @@ class MainWindow(QMainWindow):
         self.ai_panel.explain_requested.connect(self.on_explain_requested)
         self.ai_panel.auto_mode_changed.connect(self.on_auto_mode_changed)
         self.ai_panel.credentials_changed.connect(self.on_credentials_changed)
+        self.ai_panel.connection_tested.connect(self.on_api_connection_tested)
         self.ai_panel.research_requested.connect(self.on_research_requested)
         self.ai_panel.search_config_changed.connect(self.on_search_config_changed)
         self.ai_panel.queue_execute_requested.connect(self.on_queue_execute)
@@ -902,8 +908,38 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(
                 f"AI 配置已保存：{provider_label(credentials.get('provider', ''))}"
                 f" / {credentials.get('model', '')}", 4000)
+            # 凭据变了，之前"已连通"的结论作废 —— 回到"未验证"
+            self.update_api_status()
         else:  # 兼容旧的两参数调用
             self.session_manager.set_ai_credentials(*credentials)
+
+    def on_api_connection_tested(self, ok: bool, message: str):
+        """AI 面板测完连接，同步状态栏指示"""
+        self.update_api_status(ok=ok, message=message)
+        self.status_bar.showMessage(
+            ("API 连接正常：" if ok else "API 连接失败：") + message, 5000)
+
+    def update_api_status(self, ok=None, message: str = ""):
+        """
+        状态栏的 API 凭据指示（三态）
+
+        ok=True  测试通过   → 绿色 ✓
+        ok=False 测试失败   → 红色 ✗
+        ok=None  未测试     → 看有没有填 Key：填了=未验证(灰)，没填=未配置(暗)
+        """
+        if ok is True:
+            text, color = "API: ✓ 已连通", "#3fb950"
+        elif ok is False:
+            text, color = "API: ✗ 连接失败", "#f85149"
+        else:
+            creds = self.current_ai_credentials()
+            if creds.get("api_key"):
+                text, color = "API: 未验证", "#98a1b5"
+            else:
+                text, color = "API: 未配置", "#666e82"
+        self.status_api.setText(text)
+        self.status_api.setStyleSheet(f"color: {color};")
+        self.status_api.setToolTip(message or "点『AI 高级』页的『测试连接』验证 Key 是否可用")
 
     def current_ai_credentials(self) -> dict:
         """当前 AI 面板上的凭据"""
