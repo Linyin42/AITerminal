@@ -38,9 +38,21 @@ class SessionTab(QWidget):
 
         # 顶部信息条
         bar = QWidget()
-        bar.setStyleSheet("background-color: #171a24; border-bottom: 1px solid #2b3143;")
+        # 条内的按钮用紧凑样式：这里是"细长信息条"，不该塞一排大按钮显得像工具栏
+        bar.setStyleSheet(
+            "background-color: #171a24; border-bottom: 1px solid #2b3143;"
+            " QPushButton { padding: 3px 9px; font-size: 11px; min-height: 16px;"
+            "   border-radius: 6px; background: transparent;"
+            "   border: 1px solid rgba(43, 49, 67, 0.85); color: #c5cddd;"
+            "   font-weight: 550; }"
+            " QPushButton:hover { background: rgba(230, 233, 242, 0.08);"
+            "   border-color: #39415a; color: #e6e9f2; }"
+            " QPushButton:pressed { background: rgba(124, 140, 248, 0.16);"
+            "   border-color: rgba(124, 140, 248, 0.55); color: #a5b1ff; }"
+        )
         bar_layout = QHBoxLayout(bar)
         bar_layout.setContentsMargins(8, 4, 8, 4)
+        bar_layout.setSpacing(6)
 
         self.status_dot = QLabel("●")
         self.status_dot.setStyleSheet("color: #98a5ff;")

@@ -167,6 +167,11 @@ def test_settings():
     try:
         settings.config_file = tmp_file
         settings.set("font_size", 12)
+        # 先清空最近连接再测"追加"行为。
+        # 注意：Settings() 会加载**真实**配置文件，用户只要用过软件，
+        # recent_connections 里就会有记录；不清空的话下面 len==1 的断言
+        # 会随真实数据漂移（这条测试踩过）。
+        settings.set("recent_connections", [])
         settings.set_last_connection({"protocol": "SSH", "host": "10.0.0.1", "port": 22,
                                       "password": "secret", "name": "sw1"})
         settings.save()
