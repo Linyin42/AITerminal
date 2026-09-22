@@ -7,9 +7,11 @@
 顶部有搜索框与 "+ 新建" 青色按钮。
 """
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton,
-    QLineEdit, QScrollArea, QSizePolicy, QMenu
+    QLineEdit, QScrollArea, QSizePolicy, QMenu, QGraphicsDropShadowEffect
 )
 
 
@@ -122,11 +124,18 @@ class HostCard(QFrame):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_context)
 
+        # 仿 Netcatty 的卡片柔和阴影（QSS 不支持 box-shadow，用图形效果实现）
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(18)
+        shadow.setOffset(0, 3)
+        shadow.setColor(QColor(0, 0, 0, 110))
+        self.setGraphicsEffect(shadow)
+
     def _apply_style(self):
         if self.selected:
             bg, border = '#232a45', '#7c8cf8'
         else:
-            bg, border = '#1e222f', '#2b3143'
+            bg, border = '#1e222f', 'rgba(43, 49, 67, 0.85)'
         self.setStyleSheet(
             f"QFrame#HostCard {{ background:{bg}; border:1px solid {border}; border-radius:12px; }}"
             f"QFrame#HostCard:hover {{ background:#242938; border-color:#39415a; }}"
