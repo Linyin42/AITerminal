@@ -205,7 +205,7 @@ class ConnectDialog(QDialog):
         # Console 排查提示
         self.hint_label = QLabel()
         self.hint_label.setWordWrap(True)
-        self.hint_label.setStyleSheet("color: #8a8a8a; font-size: 11px;")
+        self.hint_label.setStyleSheet("color: #98a1b5; font-size: 11px;")
         self.hint_label.setText("Console 常见问题：" + CONSOLE_HINTS[0])
         self.hint_label.setVisible(False)
         layout.addWidget(self.hint_label)

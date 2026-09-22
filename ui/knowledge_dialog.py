@@ -92,7 +92,7 @@ class KnowledgeDialog(QDialog):
         path_group = QGroupBox("资料库目录")
         path_layout = QHBoxLayout()
         self.path_label = QLabel(self.kb.root)
-        self.path_label.setStyleSheet("color: #9cdcfe;")
+        self.path_label.setStyleSheet("color: #a5b1ff;")
         self.path_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
         path_layout.addWidget(self.path_label, 1)
@@ -157,7 +157,7 @@ class KnowledgeDialog(QDialog):
             "老版 .doc/.xls/.ppt 请先另存为新格式或导出 PDF。"
         )
         tip.setWordWrap(True)
-        tip.setStyleSheet("color: #8a8a8a; font-size: 11px;")
+        tip.setStyleSheet("color: #98a1b5; font-size: 11px;")
         import_layout.addWidget(tip)
 
         import_group.setLayout(import_layout)
@@ -255,7 +255,7 @@ class KnowledgeDialog(QDialog):
         list_layout.addLayout(row4)
 
         self.stats_label = QLabel("-")
-        self.stats_label.setStyleSheet("color: #8a8a8a;")
+        self.stats_label.setStyleSheet("color: #98a1b5;")
         list_layout.addWidget(self.stats_label)
 
         self.progress = QProgressBar()
@@ -276,7 +276,7 @@ class KnowledgeDialog(QDialog):
         hint = QLabel("输入关键词，验证 AI 能不能从本地资料里查到。"
                       "查得到说明导入生效，AI 之后也会用上这些内容。")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #8a8a8a;")
+        hint.setStyleSheet("color: #98a1b5;")
         layout.addWidget(hint)
 
         search_row = QHBoxLayout()
@@ -293,7 +293,7 @@ class KnowledgeDialog(QDialog):
         self.result_view = QTextEdit()
         self.result_view.setReadOnly(True)
         self.result_view.setPlaceholderText("检索结果会显示命中的片段和来源文件")
-        self.result_view.setStyleSheet("background-color: #1e1e1e; color: #d4d4d4;")
+        self.result_view.setStyleSheet("background-color: #171a24; color: #e6e9f2;")
         layout.addWidget(self.result_view, 1)
         return page
 
@@ -566,13 +566,13 @@ class KnowledgeDialog(QDialog):
             self.table.setItem(row, 6, QTableWidgetItem(document["mtime_text"]))
 
             if document["error"]:
-                status, color = document["error"][:30], "#f14c4c"
+                status, color = document["error"][:30], "#f85149"
             elif not document["supported"]:
-                status, color = "不支持的类型", "#f14c4c"
+                status, color = "不支持的类型", "#f85149"
             elif document["chunks"] == 0:
-                status, color = "待索引", "#dcdcaa"
+                status, color = "待索引", "#d29922"
             else:
-                status, color = f"已索引({document['chunks']}段)", "#4ec9b0"
+                status, color = f"已索引({document['chunks']}段)", "#3fb950"
             status_item = QTableWidgetItem(status)
             status_item.setForeground(QColor(color))
             self.table.setItem(row, 7, status_item)

@@ -74,7 +74,7 @@ class SerialControlDialog(QDialog):
 
         self.break_info = QLabel("提示：设备上电瞬间连点 Break 可进入 BootROM；部分设备需要先拉低 DTR。")
         self.break_info.setWordWrap(True)
-        self.break_info.setStyleSheet("color: #8a8a8a; font-size: 11px;")
+        self.break_info.setStyleSheet("color: #98a1b5; font-size: 11px;")
         break_layout.addWidget(self.break_info)
 
         break_group.setLayout(break_layout)
@@ -119,7 +119,7 @@ class SerialControlDialog(QDialog):
         # 提示
         hint = QLabel("Console 排查提示：\n· " + "\n· ".join(CONSOLE_HINTS[:4]))
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #8a8a8a; font-size: 11px;")
+        hint.setStyleSheet("color: #98a1b5; font-size: 11px;")
         layout.addWidget(hint)
 
         # 底部按钮
@@ -153,7 +153,7 @@ class SerialControlDialog(QDialog):
 
         connected = self.connector.is_connected()
         self.status_label.setText("已连接" if connected else "已断开 / 重连中")
-        self.status_label.setStyleSheet("color: #4ec9b0;" if connected else "color: #f14c4c;")
+        self.status_label.setStyleSheet("color: #3fb950;" if connected else "color: #f85149;")
 
         params = self.connector.connection_params()
         self.port_label.setText(

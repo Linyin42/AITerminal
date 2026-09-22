@@ -377,7 +377,7 @@ def test_v02_dialogs():
     summary = dialog.summary_label.text()
     check("比对对话框: 生成结果", "新增" in summary or "一致" in summary, summary)
     html_text = dialog.diff_view.toHtml()
-    check("比对对话框: 差异着色", "4ec9b0" in html_text or "f14c4c" in html_text)
+    check("比对对话框: 差异着色", "3fb950" in html_text or "f85149" in html_text)
     dialog.close()
 
     tpl = TemplateDialog(None, default_delay=300, session_name="测试设备", vendor="h3c")

@@ -107,7 +107,7 @@ class PatrolDialog(QDialog):
 
         self.device_hint = QLabel("提示：SSH/Telnet 设备需要用户名密码，"
                                   "从「当前会话添加」会自动带上。")
-        self.device_hint.setStyleSheet("color: #8a8a8a; font-size: 11px;")
+        self.device_hint.setStyleSheet("color: #98a1b5; font-size: 11px;")
         device_layout.addWidget(self.device_hint)
 
         device_group.setLayout(device_layout)
@@ -198,14 +198,14 @@ class PatrolDialog(QDialog):
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumHeight(150)
-        self.log_view.setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; "
+        self.log_view.setStyleSheet("background-color: #171a24; color: #e6e9f2; "
                                     "font-family: Consolas, monospace; font-size: 11px;")
         layout.addWidget(self.log_view)
 
         # ---------------- 导出
         export_row = QHBoxLayout()
         self.summary_label = QLabel("尚未执行巡检")
-        self.summary_label.setStyleSheet("color: #8a8a8a;")
+        self.summary_label.setStyleSheet("color: #98a1b5;")
         export_row.addWidget(self.summary_label, 1)
 
         self.btn_excel = QPushButton("导出 Excel")

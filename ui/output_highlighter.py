@@ -15,7 +15,7 @@ from PyQt6.QtCore import QRegularExpression
 from PyQt6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
 
 # ---------------------------------------------------------------- 配色
-C_PROMPT = "#a78bfa"   # 提示符 <hostname> —— 紫罗兰（与 IP 的天蓝区分开）
+C_PROMPT = "#e6e9f2"   # 提示符 <hostname> —— 白（加粗，不用紫色）
 C_ERROR = "#f85149"    # 错误 —— 红
 C_UP = "#3fb950"       # UP / 成功 —— 绿
 C_DOWN = "#7d8598"     # DOWN / 关闭 —— 灰（刻意弱化，避免和错误混）

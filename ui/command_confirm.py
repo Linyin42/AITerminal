@@ -47,7 +47,7 @@ class ConfigConfirmDialog(QDialog):
         warning = QLabel(
             f"即将对 <b>{self.target or '当前设备'}</b> 执行 <b>{self.action}</b>："
             f"共 {self.result_info['total']} 条命令，其中 "
-            f"<b style='color:#f14c4c;'>{config_count} 条会修改设备配置</b>。"
+            f"<b style='color:#f85149;'>{config_count} 条会修改设备配置</b>。"
         )
         warning.setWordWrap(True)
         layout.addWidget(warning)
@@ -56,11 +56,11 @@ class ConfigConfirmDialog(QDialog):
         if notes:
             note_label = QLabel("风险提示：" + "；".join(notes))
             note_label.setWordWrap(True)
-            note_label.setStyleSheet("color: #dcdcaa;")
+            note_label.setStyleSheet("color: #d29922;")
             layout.addWidget(note_label)
 
         hint = QLabel("请逐条核对命令无误后再确认。本程序不会自动下发配置命令。")
-        hint.setStyleSheet("color: #8a8a8a; font-size: 11px;")
+        hint.setStyleSheet("color: #98a1b5; font-size: 11px;")
         layout.addWidget(hint)
 
         # 命令清单
@@ -80,7 +80,7 @@ class ConfigConfirmDialog(QDialog):
             command_item = QTableWidgetItem(command)
             self.table.setItem(row, 1, command_item)
             type_item = QTableWidgetItem("配置" if is_config else "只读")
-            type_item.setForeground(QColor("#f14c4c" if is_config else "#4ec9b0"))
+            type_item.setForeground(QColor("#f85149" if is_config else "#3fb950"))
             self.table.setItem(row, 2, type_item)
         self.table.setMaximumHeight(240)
         layout.addWidget(self.table)
@@ -90,7 +90,7 @@ class ConfigConfirmDialog(QDialog):
         self.text_view.setReadOnly(True)
         self.text_view.setMaximumHeight(90)
         self.text_view.setStyleSheet(
-            "background-color: #1e1e1e; color: #d4d4d4; font-family: Consolas; font-size: 11px;")
+            "background-color: #171a24; color: #e6e9f2; font-family: Consolas; font-size: 11px;")
         layout.addWidget(QLabel("命令原文（可复制留档）:"))
         layout.addWidget(self.text_view)
 

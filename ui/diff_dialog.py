@@ -98,7 +98,7 @@ class DiffDialog(QDialog):
         result_header = QHBoxLayout()
         result_header.addWidget(QLabel("差异结果"))
         self.summary_label = QLabel("尚未对比")
-        self.summary_label.setStyleSheet("color: #8a8a8a;")
+        self.summary_label.setStyleSheet("color: #98a1b5;")
         result_header.addWidget(self.summary_label)
         result_header.addStretch()
 
@@ -109,7 +109,7 @@ class DiffDialog(QDialog):
 
         self.diff_view = QTextEdit()
         self.diff_view.setReadOnly(True)
-        self.diff_view.setStyleSheet("background-color: #1e1e1e; border: 1px solid #555;")
+        self.diff_view.setStyleSheet("background-color: #171a24; border: 1px solid #2b3143;")
         layout.addWidget(self.diff_view, 1)
 
         # 底部
@@ -204,15 +204,15 @@ class DiffDialog(QDialog):
     def render_diff(self, diff):
         """按行着色渲染差异"""
         colors = {
-            '+': '#4ec9b0',
-            '-': '#f14c4c',
-            '@': '#569cd6',
-            ' ': '#8a8a8a',
+            '+': '#3fb950',
+            '-': '#f85149',
+            '@': '#7c8cf8',
+            ' ': '#98a1b5',
         }
         spans = []
         for tag, line in diff:
             prefix = '' if tag == '@' else tag
-            color = colors.get(tag, '#d4d4d4')
+            color = colors.get(tag, '#e6e9f2')
             spans.append(
                 f'<span style="color:{color};">{prefix}{html.escape(line)}</span>'
             )
