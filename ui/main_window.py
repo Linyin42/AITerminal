@@ -9,7 +9,7 @@ import subprocess
 import threading
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QTabWidget, QDockWidget, QToolBar,
+    QMainWindow, QTabWidget, QDockWidget,
     QStatusBar, QMessageBox, QApplication, QLabel, QProgressDialog,
     QFileDialog, QWidget
 )
@@ -109,7 +109,7 @@ class MainWindow(QMainWindow):
         self.vault_panel.set_devices(self.settings.get_vault_devices())
 
         # 工具栏与菜单
-        self.init_toolbar()
+        self.init_actions()
         self.init_menu()
 
         # 状态栏
@@ -141,107 +141,38 @@ class MainWindow(QMainWindow):
                 pass
         self.setStyleSheet(DEFAULT_QSS)
 
-    def init_toolbar(self):
-        """初始化工具栏"""
-        toolbar = QToolBar("主工具栏")
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
+    def init_actions(self):
+        """
+        创建需要跨方法引用的 QAction（**不再建工具栏**）。
 
-        # 新建连接
-        action_connect = QAction("新建连接", self)
-        action_connect.setShortcut("Ctrl+N")
-        action_connect.triggered.connect(self.show_connect_dialog)
-        toolbar.addAction(action_connect)
-
-        toolbar.addSeparator()
-
-        # AI模式开关
+        原来的工具栏被取消了 —— 那 14 个按钮里有 12 个在菜单中已有同名项，
+        属于纯重复；剩下 2 个独有的（AI分析一次 / 清屏）已补进对应菜单。
+        这里只留两个需要被外部 setText / setEnabled 的 action。
+        """
+        # AI 模式开关：状态要在多处同步（setText / setChecked）
         self.action_ai = QAction("AI: OFF", self)
         self.action_ai.setCheckable(True)
         self.action_ai.setShortcut("Ctrl+I")
+        self.action_ai.setToolTip("启用 / 关闭当前会话的 AI 辅助")
         self.action_ai.triggered.connect(self.toggle_ai_mode)
-        toolbar.addAction(self.action_ai)
 
-        # 单步分析
-        action_step = QAction("AI分析一次", self)
-        action_step.triggered.connect(self.analyze_once)
-        toolbar.addAction(action_step)
-
-        toolbar.addSeparator()
-
-        # 断开连接
-        action_disconnect = QAction("断开", self)
-        action_disconnect.triggered.connect(self.disconnect_current)
-        toolbar.addAction(action_disconnect)
-
-        # 清空终端
-        action_clear = QAction("清屏", self)
-        action_clear.setShortcut("Ctrl+K")
-        action_clear.triggered.connect(self.clear_current)
-        toolbar.addAction(action_clear)
-
-        # 保存日志
-        action_log = QAction("保存日志", self)
-        action_log.triggered.connect(self.save_current_log)
-        toolbar.addAction(action_log)
-
-        toolbar.addSeparator()
-
-        # 批量下发
-        action_batch = QAction("批量下发", self)
-        action_batch.setToolTip("选择命令模板，填写变量后批量下发")
-        action_batch.triggered.connect(self.show_template_dialog)
-        toolbar.addAction(action_batch)
-
-        # 配置比对
-        action_diff = QAction("配置比对", self)
-        action_diff.setToolTip("对比两份配置或两次快照的差异")
-        action_diff.triggered.connect(self.show_diff_dialog)
-        toolbar.addAction(action_diff)
-
-        # 多设备并发巡检
-        action_patrol = QAction("多设备巡检", self)
-        action_patrol.setToolTip("同时对多台设备跑同一组命令，结果导出 Excel")
-        action_patrol.triggered.connect(self.open_patrol_dialog)
-        toolbar.addAction(action_patrol)
-
-        # 采集快照
-        action_snapshot = QAction("采集快照", self)
-        action_snapshot.setToolTip("采集当前设备配置快照，用于后续比对")
-        action_snapshot.triggered.connect(self.take_snapshot)
-        toolbar.addAction(action_snapshot)
-
-        toolbar.addSeparator()
-
-        # 串口控制（仅 Console 会话可用）
-        self.action_serial = QAction("串口控制", self)
+        # 串口控制：仅 Console 会话可用，切换会话时要 setEnabled
+        self.action_serial = QAction("串口控制（Break / DTR / RTS）…", self)
         self.action_serial.setToolTip("Break / DTR / RTS / 切换波特率 / 重新连接")
-        self.action_serial.setEnabled(False)  # 仅 Console 会话可用
+        self.action_serial.setEnabled(False)   # 仅 Console 会话可用
         self.action_serial.triggered.connect(self.open_serial_control)
-        toolbar.addAction(self.action_serial)
-
-        # 联网查询
-        action_research = QAction("资料检索", self)
-        action_research.setToolTip("先查本地资料库，再联网检索命令与技术资料")
-        action_research.triggered.connect(self.focus_research_tab)
-        toolbar.addAction(action_research)
-
-        # 导入资料（核心入口：把下载好的文档放进资料库）
-        action_import = QAction("导入资料", self)
-        action_import.setToolTip("把下载好的命令手册 / 配置案例导入本地资料库，供 AI 查命令时使用")
-        action_import.triggered.connect(self.import_knowledge_files)
-        toolbar.addAction(action_import)
-
-        # 资料库管理
-        action_kb = QAction("资料库", self)
-        action_kb.setToolTip("管理本地资料库：列表、检索测试、更换目录、重建索引")
-        action_kb.triggered.connect(self.open_knowledge_dialog)
-        toolbar.addAction(action_kb)
 
     def init_menu(self):
-        """初始化菜单栏"""
+        """
+        初始化菜单栏 —— 所有功能入口都收在这里（已取消工具栏）。
+
+        结构：文件 / 会话 / 视图 / 工具 / AI / 资料 / 帮助
+        其中「视图」和「资料」是新建的：原来这两类操作挤在工具栏和工具菜单里，
+        没有合适的归属，单独成菜单更清楚。
+        """
         menubar = self.menuBar()
 
+        # ---------------------------------------------------------- 文件
         file_menu = menubar.addMenu("文件(&F)")
         act_new = QAction("新建连接…", self)
         act_new.setShortcut("Ctrl+N")
@@ -256,6 +187,7 @@ class MainWindow(QMainWindow):
         act_quit.triggered.connect(self.close)
         file_menu.addAction(act_quit)
 
+        # ---------------------------------------------------------- 会话
         session_menu = menubar.addMenu("会话(&S)")
         act_close = QAction("关闭当前会话", self)
         act_close.triggered.connect(self.disconnect_current)
@@ -268,7 +200,24 @@ class MainWindow(QMainWindow):
         act_restore.triggered.connect(self.restore_last_sessions)
         session_menu.addAction(act_restore)
 
-        # 工具菜单
+        # ---------------------------------------------------------- 视图（新建）
+        view_menu = menubar.addMenu("视图(&V)")
+        act_clear = QAction("清屏", self)
+        act_clear.setShortcut("Ctrl+K")
+        act_clear.setToolTip("清空当前终端显示内容")
+        act_clear.triggered.connect(self.clear_current)
+        view_menu.addAction(act_clear)
+        view_menu.addSeparator()
+        act_toggle_vault = QAction("显示/隐藏 设备库面板", self)
+        act_toggle_vault.triggered.connect(
+            lambda: self.vault_dock.setVisible(not self.vault_dock.isVisible()))
+        view_menu.addAction(act_toggle_vault)
+        act_toggle_ai = QAction("显示/隐藏 AI 面板", self)
+        act_toggle_ai.triggered.connect(
+            lambda: self.ai_dock.setVisible(not self.ai_dock.isVisible()))
+        view_menu.addAction(act_toggle_ai)
+
+        # ---------------------------------------------------------- 工具
         tool_menu = menubar.addMenu("工具(&T)")
 
         act_tpl = QAction("命令模板与批量下发…", self)
@@ -299,38 +248,14 @@ class MainWindow(QMainWindow):
 
         tool_menu.addSeparator()
 
+        # 串口控制（仅 Console 会话可用，用共享的 action 以便外部 setEnabled）
+        tool_menu.addAction(self.action_serial)
+
+        tool_menu.addSeparator()
+
         act_prompt = QAction("编辑系统提示词…", self)
         act_prompt.triggered.connect(self.edit_system_prompt)
         tool_menu.addAction(act_prompt)
-
-        tool_menu.addSeparator()
-
-        act_serial = QAction("串口控制（Break / DTR / RTS）…", self)
-        act_serial.triggered.connect(self.open_serial_control)
-        tool_menu.addAction(act_serial)
-
-        act_search = QAction("资料检索（查命令与技术资料）…", self)
-        act_search.triggered.connect(self.focus_research_tab)
-        tool_menu.addAction(act_search)
-
-        tool_menu.addSeparator()
-
-        act_import_docs = QAction("导入资料文件…（下载好的命令手册放这里）", self)
-        act_import_docs.triggered.connect(self.import_knowledge_files)
-        tool_menu.addAction(act_import_docs)
-
-        act_kb = QAction("本地资料库管理…", self)
-        act_kb.triggered.connect(self.open_knowledge_dialog)
-        tool_menu.addAction(act_kb)
-
-        act_kb_dir = QAction("打开资料库目录", self)
-        act_kb_dir.triggered.connect(self.open_knowledge_dir)
-        tool_menu.addAction(act_kb_dir)
-
-        act_save_note = QAction("把当前 AI 输出存为资料…", self)
-        act_save_note.setToolTip("把 AI 生成的命令沉淀到本地资料库，以后可直接检索")
-        act_save_note.triggered.connect(self.ai_panel.on_save_output)
-        tool_menu.addAction(act_save_note)
 
         tool_menu.addSeparator()
 
@@ -356,22 +281,45 @@ class MainWindow(QMainWindow):
         act_open_logs.triggered.connect(self.open_log_dir)
         tool_menu.addAction(act_open_logs)
 
+        # ---------------------------------------------------------- AI
         ai_menu = menubar.addMenu("AI(&A)")
-        act_ai_toggle = QAction("启用/关闭 AI", self)
-        act_ai_toggle.setShortcut("Ctrl+I")
-        act_ai_toggle.triggered.connect(
-            lambda: self.action_ai.trigger()
-        )
-        ai_menu.addAction(act_ai_toggle)
-        act_reset = QAction("清空AI上下文", self)
+        # 直接用共享 action（带勾选态，文字随会话在 AI: ON / OFF 间切换）
+        ai_menu.addAction(self.action_ai)
+        act_step = QAction("AI 分析一次", self)
+        act_step.setToolTip("对当前屏幕输出跑一次分析（不开启自动模式）")
+        act_step.triggered.connect(self.analyze_once)
+        ai_menu.addAction(act_step)
+        ai_menu.addSeparator()
+        act_reset = QAction("清空 AI 上下文", self)
         act_reset.triggered.connect(self.reset_ai_context)
         ai_menu.addAction(act_reset)
-        act_panel = QAction("显示/隐藏 AI 面板", self)
-        act_panel.triggered.connect(
-            lambda: self.ai_dock.setVisible(not self.ai_dock.isVisible())
-        )
-        ai_menu.addAction(act_panel)
 
+        # ---------------------------------------------------------- 资料（新建）
+        doc_menu = menubar.addMenu("资料(&D)")
+        act_search = QAction("资料检索（查命令与技术资料）…", self)
+        act_search.setToolTip("先查本地资料库，再联网检索命令与技术资料")
+        act_search.triggered.connect(self.focus_research_tab)
+        doc_menu.addAction(act_search)
+        act_import_docs = QAction("导入资料文件…（下载好的命令手册放这里）", self)
+        act_import_docs.setToolTip(
+            "把下载好的命令手册 / 配置案例导入本地资料库，供 AI 查命令时使用")
+        act_import_docs.triggered.connect(self.import_knowledge_files)
+        doc_menu.addAction(act_import_docs)
+        doc_menu.addSeparator()
+        act_kb = QAction("本地资料库管理…", self)
+        act_kb.setToolTip("列表、检索测试、更换目录、重建索引")
+        act_kb.triggered.connect(self.open_knowledge_dialog)
+        doc_menu.addAction(act_kb)
+        act_kb_dir = QAction("打开资料库目录", self)
+        act_kb_dir.triggered.connect(self.open_knowledge_dir)
+        doc_menu.addAction(act_kb_dir)
+        doc_menu.addSeparator()
+        act_save_note = QAction("把当前 AI 输出存为资料…", self)
+        act_save_note.setToolTip("把 AI 生成的命令沉淀到本地资料库，以后可直接检索")
+        act_save_note.triggered.connect(self.ai_panel.on_save_output)
+        doc_menu.addAction(act_save_note)
+
+        # ---------------------------------------------------------- 帮助
         help_menu = menubar.addMenu("帮助(&H)")
         act_about = QAction("关于 AITerminal", self)
         act_about.triggered.connect(self.show_about)
