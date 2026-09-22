@@ -117,9 +117,11 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("就绪")
         self.status_session = QLabel("无活动会话")
+        self.status_safety = QLabel("安全闸门: 开")
         self.status_api = QLabel("API: 未配置")
         self.status_ai = QLabel("AI: OFF")
         self.status_bar.addPermanentWidget(self.status_session)
+        self.status_bar.addPermanentWidget(self.status_safety)
         self.status_bar.addPermanentWidget(self.status_api)
         self.status_bar.addPermanentWidget(self.status_ai)
 
@@ -128,6 +130,8 @@ class MainWindow(QMainWindow):
 
         # 启动时按已保存的凭据初始化 API 状态指示（未验证态）
         self.update_api_status()
+        # 安全闸门状态常驻显示
+        self.update_safety_status()
 
     def apply_style(self):
         """载入 QSS 样式表，缺失时使用内置暗色样式"""
@@ -220,6 +224,19 @@ class MainWindow(QMainWindow):
         # ---------------------------------------------------------- 工具
         tool_menu = menubar.addMenu("工具(&T)")
 
+        # 安全闸门放最前面 —— 这是最要紧的开关，不该藏在菜单底部
+        self.act_confirm_config = QAction("配置命令下发前需确认", self)
+        self.act_confirm_config.setCheckable(True)
+        self.act_confirm_config.setChecked(self.settings.confirm_config_commands)
+        self.act_confirm_config.setToolTip(
+            "开启后，包含配置类命令的批次会先弹出命令清单等你确认；\n"
+            "AI 自动模式下生成的配置命令也会转入待执行队列而不会自动下发"
+        )
+        self.act_confirm_config.triggered.connect(self.on_confirm_config_toggled)
+        tool_menu.addAction(self.act_confirm_config)
+
+        tool_menu.addSeparator()
+
         act_tpl = QAction("命令模板与批量下发…", self)
         act_tpl.triggered.connect(self.show_template_dialog)
         tool_menu.addAction(act_tpl)
@@ -256,18 +273,6 @@ class MainWindow(QMainWindow):
         act_prompt = QAction("编辑系统提示词…", self)
         act_prompt.triggered.connect(self.edit_system_prompt)
         tool_menu.addAction(act_prompt)
-
-        tool_menu.addSeparator()
-
-        self.act_confirm_config = QAction("配置命令下发前需确认", self)
-        self.act_confirm_config.setCheckable(True)
-        self.act_confirm_config.setChecked(self.settings.confirm_config_commands)
-        self.act_confirm_config.setToolTip(
-            "开启后，包含配置类命令的批次会先弹出命令清单等你确认；\n"
-            "AI 自动模式下生成的配置命令也会转入待执行队列而不会自动下发"
-        )
-        self.act_confirm_config.triggered.connect(self.on_confirm_config_toggled)
-        tool_menu.addAction(self.act_confirm_config)
 
         tool_menu.addSeparator()
 
@@ -889,6 +894,26 @@ class MainWindow(QMainWindow):
         self.status_api.setStyleSheet(f"color: {color};")
         self.status_api.setToolTip(message or "点『AI 高级』页的『测试连接』验证 Key 是否可用")
 
+    def update_safety_status(self):
+        """
+        状态栏的配置命令安全闸门指示。
+
+        这是项目最要紧的一条约定（配置类命令下发前必须人工确认），
+        所以让它常驻状态栏，不用翻菜单就知道当前是开是关。
+        关闭时用醒目的红色 + ⚠，避免"以为开着其实关了"。
+        """
+        on = bool(self.settings.confirm_config_commands)
+        if on:
+            self.status_safety.setText("安全闸门: 开")
+            self.status_safety.setStyleSheet("color: #3fb950;")
+            self.status_safety.setToolTip(
+                "配置类命令下发前会先弹出命令清单等你确认（工具菜单可关闭）")
+        else:
+            self.status_safety.setText("安全闸门: 关 ⚠")
+            self.status_safety.setStyleSheet("color: #f85149; font-weight: 650;")
+            self.status_safety.setToolTip(
+                "⚠ 已关闭配置命令确认 —— 配置类命令可能被直接下发，请谨慎")
+
     def current_ai_credentials(self) -> dict:
         """当前 AI 面板上的凭据"""
         return {
@@ -1414,6 +1439,7 @@ class MainWindow(QMainWindow):
         """开关"配置命令下发前需确认"安全闸门"""
         self.settings.confirm_config_commands = checked
         self.settings.save()
+        self.update_safety_status()      # 状态栏常驻指示同步
         self.status_bar.showMessage(
             "配置命令下发前需确认：已开启" if checked else
             "⚠ 已关闭配置命令确认，程序可能直接下发配置命令", 6000
