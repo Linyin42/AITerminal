@@ -60,7 +60,9 @@ DEFAULTS: Dict[str, Any] = {
         "line_ending": "\r",
         "char_delay_ms": 0,
         "auto_reconnect": True,
-        "local_echo": False,
+        # 串口 / Console 设备通常不回显你敲的字符，默认开本地回显，
+        # 否则会以为"输入没反应"（要按回车才看到）。设备若自带回显可关掉。
+        "local_echo": True,
     },
     "last_connection": {},
     "recent_connections": [],

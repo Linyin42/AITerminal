@@ -11,7 +11,7 @@ import threading
 from PyQt6.QtWidgets import (
     QMainWindow, QTabWidget, QDockWidget,
     QStatusBar, QMessageBox, QApplication, QLabel, QProgressDialog,
-    QFileDialog, QWidget
+    QFileDialog, QWidget, QPushButton
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction
@@ -98,6 +98,9 @@ class MainWindow(QMainWindow):
         self.ai_dock.setTitleBarWidget(QWidget())   # 隐藏标题栏
         # 把 AI 助手放到设备库右侧、终端左侧
         self.splitDockWidget(self.vault_dock, self.ai_dock, Qt.Orientation.Horizontal)
+
+        # AI 面板**默认隐藏** —— 用不到时不占地方，点顶部「AI 助手」按钮才滑出
+        self.ai_dock.setVisible(False)
 
         # 初始宽度：设备库 280 / AI 助手 320 / 终端占最大
         self.resizeDocks(
@@ -217,8 +220,8 @@ class MainWindow(QMainWindow):
             lambda: self.vault_dock.setVisible(not self.vault_dock.isVisible()))
         view_menu.addAction(act_toggle_vault)
         act_toggle_ai = QAction("显示/隐藏 AI 面板", self)
-        act_toggle_ai.triggered.connect(
-            lambda: self.ai_dock.setVisible(not self.ai_dock.isVisible()))
+        # 走右上角那个按钮，保证按钮勾选态与菜单项不脱节
+        act_toggle_ai.triggered.connect(lambda: self.btn_ai_toggle.toggle())
         view_menu.addAction(act_toggle_ai)
 
         # ---------------------------------------------------------- 工具
@@ -329,6 +332,22 @@ class MainWindow(QMainWindow):
         act_about = QAction("关于 AITerminal", self)
         act_about.triggered.connect(self.show_about)
         help_menu.addAction(act_about)
+
+        # ---------------------------------------------------------- 右上角：AI 面板开关
+        # 挂在菜单栏的右上角（Netcatty 风格的顶栏按钮位置）。
+        # AI 面板默认隐藏，点这里才滑出，不占固定宽度。
+        self.btn_ai_toggle = QPushButton("AI 助手")
+        self.btn_ai_toggle.setObjectName("TopToggleBtn")
+        self.btn_ai_toggle.setCheckable(True)
+        self.btn_ai_toggle.setChecked(self.ai_dock.isVisible())
+        self.btn_ai_toggle.setToolTip("显示 / 隐藏 AI 助手面板")
+        self.btn_ai_toggle.toggled.connect(self.on_toggle_ai_panel)
+        menubar.setCornerWidget(self.btn_ai_toggle, Qt.Corner.TopRightCorner)
+
+    def on_toggle_ai_panel(self, checked: bool):
+        """右上角按钮：显示/隐藏 AI 助手面板"""
+        self.ai_dock.setVisible(bool(checked))
+        self.btn_ai_toggle.setText("AI 助手 ●" if checked else "AI 助手")
 
     def init_signals(self):
         """连接会话管理器与AI面板的信号"""

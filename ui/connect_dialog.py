@@ -293,7 +293,7 @@ class ConnectDialog(QDialog):
         self.set_combo_by_data(self.line_ending_combo, d.get("line_ending", "\r"))
         self.char_delay_spin.setValue(int(d.get("char_delay_ms", 0)))
         self.chk_auto_reconnect.setChecked(bool(d.get("auto_reconnect", True)))
-        self.chk_local_echo.setChecked(bool(d.get("local_echo", False)))
+        self.chk_local_echo.setChecked(bool(d.get("local_echo", True)))
 
     @staticmethod
     def set_combo_by_data(combo: QComboBox, value):
@@ -360,6 +360,10 @@ class ConnectDialog(QDialog):
         defaults = PROTOCOL_DEFAULTS.get(protocol, {})
         if 'port' in defaults:
             self.port_spin.setValue(defaults['port'])
+        # 切到串口默认勾上本地回显 —— 串口/Console 设备多不回显你敲的字符，
+        # 不开的话会以为"输入没反应"。用户可在下方手动取消。
+        if is_serial and hasattr(self, "chk_local_echo"):
+            self.chk_local_echo.setChecked(True)
 
     def load_last(self):
         """载入上次使用的连接参数（含密码，若上次勾了"记住"）"""

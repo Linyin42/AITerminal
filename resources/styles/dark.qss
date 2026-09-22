@@ -430,3 +430,25 @@ QScrollArea#VaultScroll {
 QWidget#VaultCardsHost {
     background: transparent;
 }
+
+/* ---------------------------------------------------------- 菜单栏右上角开关 */
+QPushButton#TopToggleBtn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 3px 10px;
+    margin-right: 6px;
+    color: #c5cddd;
+    font-size: 12px;
+    font-weight: 550;
+}
+
+QPushButton#TopToggleBtn:hover {
+    background: rgba(230, 233, 242, 0.08);
+}
+
+QPushButton#TopToggleBtn:checked {
+    background: rgba(124, 140, 248, 0.16);
+    border-color: rgba(124, 140, 248, 0.55);
+    color: #a5b1ff;
+}

@@ -67,8 +67,17 @@ class TerminalBuffer:
                     out.append('\n')
                     line_start = len(out)
                     i += 2
+                elif i + 1 >= n:
+                    # 裸 \r 出现在本批数据**末尾** —— 这是网络设备（H3C / 锐捷 /
+                    # 华为等）最常见的行尾写法。必须按换行处理，**不能当"回到行首"清掉**，
+                    # 否则设备回显的整行命令会被整个吞掉（曾因此出现"输入的命令不显示"）。
+                    self._lines.append("")
+                    out.append('\n')
+                    line_start = len(out)
+                    i += 1
                 else:
-                    # 回到行首：清空当前行，并撤回本行已返回的内容
+                    # 裸 \r 后面**还有内容** —— 这才是进度条式的"回到行首重写"，
+                    # 清掉本行已输出的内容，避免刷屏
                     self._lines[-1] = ""
                     del out[line_start:]
                     i += 1
