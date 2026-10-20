@@ -59,7 +59,7 @@ class TemplateDialog(QDialog):
 
         self.tpl_desc = QLabel("")
         self.tpl_desc.setWordWrap(True)
-        self.tpl_desc.setStyleSheet("color: #98a1b5;")
+        self.tpl_desc.setStyleSheet("color: #93A0B4;")
         left_layout.addWidget(self.tpl_desc)
         left.setLayout(left_layout)
         splitter.addWidget(left)
@@ -117,7 +117,7 @@ class TemplateDialog(QDialog):
 
         self.wait_hint = QLabel("")
         self.wait_hint.setWordWrap(True)
-        self.wait_hint.setStyleSheet("color: #98a1b5; font-size: 11px;")
+        self.wait_hint.setStyleSheet("color: #93A0B4; font-size: 11px;")
         right_layout.addWidget(self.wait_hint)
         self.on_wait_mode_changed()
 
@@ -187,7 +187,7 @@ class TemplateDialog(QDialog):
 
         if not names:
             hint = QLabel("该模板无需变量")
-            hint.setStyleSheet("color: #98a1b5;")
+            hint.setStyleSheet("color: #93A0B4;")
             self.var_form.addRow(hint)
 
         self.refresh_preview()

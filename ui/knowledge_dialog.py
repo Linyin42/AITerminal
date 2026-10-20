@@ -16,20 +16,50 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QInputDialog, QProgressBar, QApplication,
     QComboBox, QTabWidget, QWidget
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QUrl
+from PyQt6.QtCore import Qt, pyqtSignal, QUrl, QTimer
 from PyQt6.QtGui import QDesktopServices, QColor
 
-from core.knowledge import KnowledgeBase, SUPPORTED_EXTENSIONS
+from core.knowledge import (KnowledgeBase, SUPPORTED_EXTENSIONS, DEFAULT_KNOWLEDGE_DIR,
+                            vendor_label)
 from core.manual import (
     load_notes, filter_notes, collect_tags, collect_categories,
     export_manual, export_notes_csv
 )
 from ui.note_dialog import NoteDialog
+from ui.window_utils import center_on_screen
 from config.settings import Settings
 
 ALL_CATEGORIES = "全部分类"
 ALL_TAGS = "全部标签"
 RAW_DOC_CATEGORY = "（原始文档）"
+ALL_VENDORS = "全部厂家"
+
+#: 「打开资料管理先弹导入要求」的开关（勾了"不再显示"写 True；不勾就每次弹）
+IMPORT_TIP_KEY = "import_tip_dismissed"
+#: 随包发布的规范文件名（包根；开发环境在 <仓库>/docs/）
+SPEC_FILENAME = "资料导入规范.md"
+#: 资料列表首屏最多画多少行：本机 27297 篇时逐行插表要十几秒（2026-10-17 实测）
+MAX_TABLE_ROWS = 300
+
+
+def import_spec_path() -> str:
+    """《资料导入规范》在哪：随包（程序目录）优先，开发环境回退到仓库 docs\\
+
+    两处都没有就返回 ""（调用方给提示，不抛异常）。
+    """
+    cands = []
+    try:
+        from core.app_paths import base_dir
+        cands.append(os.path.join(base_dir(), SPEC_FILENAME))
+    except Exception:
+        pass
+    # 开发环境：本文件在 <仓库>/ui/ 下，规范在 <仓库>/docs/
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cands.append(os.path.join(repo, "docs", SPEC_FILENAME))
+    for path in cands:
+        if path and os.path.exists(path):
+            return path
+    return ""
 
 
 def build_file_filter() -> str:
@@ -52,19 +82,124 @@ class KnowledgeDialog(QDialog):
 
     knowledge_changed = pyqtSignal()
     index_finished = pyqtSignal(dict)
+    #: 后台载入完成（payload: kb/documents/notes/stats/error）
+    load_finished = pyqtSignal(dict)
+    #: 试检索的结果（检索在工作线程里跑，回主线程填结果）
+    search_finished = pyqtSignal(dict)
 
     def __init__(self, parent=None, knowledge_base: KnowledgeBase = None):
         super().__init__(parent)
-        self.kb = knowledge_base or KnowledgeBase()
+        # 2026-10-17：构造不再同步载入 —— 本机 2.7 万篇时"建 KB + 全库解析笔记 + 统计"
+        # 要 13.9~16.4 秒，用户看到的是"点了没反应"。现在构造立刻返回，载入在后台线程，
+        # 载完（load_finished）再填下拉/表格/统计；测试与脚本用 wait_loaded() 等它。
+        self.kb = knowledge_base
         self.settings = Settings()
         self._note_cache = {}   # (path, mtime) -> 解析出的笔记信息
+        self._documents = None  # list_documents() 的缓存（载入时填，改动后置空）
+        self._stats_cache = None
+        self._loaded = False
+        self._closing = False
+        self._load_done = threading.Event()
+        self._load_payload = {}
+        self._searching = False
+        self._search_started = 0.0
+        self._search_done_evt = threading.Event()
+        self._search_payload = None
         self.setWindowTitle("本地资料库 - 让 AI 查自己下载的命令文档")
         self.resize(1120, 780)
         self.index_finished.connect(self.on_index_finished)
+        self.load_finished.connect(self.on_load_finished)
+        self.search_finished.connect(self.on_search_finished)
         self.init_ui()
+        self.start_load()
+
+    # -------------------------------------------------------- 后台载入
+    def start_load(self):
+        """后台载入资料库；KB 没注入就一起建（建 KB 本身也要几秒）"""
+        self.set_buttons_enabled(False)
+        self.progress.setVisible(True)
+        self.stats_label.setText("正在载入资料库…")
+        threading.Thread(target=self._load_worker, name="kb-dialog-load",
+                         daemon=True).start()
+
+    def _load_worker(self):
+        payload = {"kb": self.kb, "documents": [], "notes": {}, "stats": None, "error": ""}
+        try:
+            kb = self.kb or KnowledgeBase()
+            documents = kb.list_documents()
+            kb.identify_vendors(documents)           # 认厂家（带缓存，只认一次）
+            notes = {}
+            for document in documents:
+                name = str(document.get("name", "")).lower()
+                if not name.endswith(('.md', '.markdown', '.txt')):
+                    continue
+                key = (document["path"], document.get("mtime"))
+                parsed = load_notes(kb, [document])
+                notes[key] = parsed[0] if parsed else None
+            payload.update(kb=kb, documents=documents, notes=notes, stats=kb.stats())
+        except Exception as e:                       # 载入失败也要让界面能用（明说原因）
+            payload["error"] = f"{type(e).__name__}: {e}"
+        self._load_payload = payload
+        self._load_done.set()
+        try:
+            self.load_finished.emit(payload)
+        except RuntimeError:
+            pass                                     # 对话框已销毁
+
+    def on_load_finished(self, payload: dict = None):
+        """载入完成：换缓存、填下拉/表格/统计（幂等，可被 wait_loaded 直接调用）"""
+        if self._loaded or self._closing:
+            return
+        payload = payload or self._load_payload or {}
+        if payload.get("kb") is not None:
+            self.kb = payload["kb"]
+        self._documents = payload.get("documents") or []
+        self._note_cache.update(payload.get("notes") or {})
+        self._stats_cache = payload.get("stats")
+        self._loaded = True
+        self.progress.setVisible(False)
+        self.set_buttons_enabled(True)
+        if payload.get("error"):
+            self.stats_label.setText(f"载入资料库失败：{payload['error']}")
+            return
         self.refresh_filter_options()
         self.refresh_table()
         self.refresh_stats()
+
+    def wait_loaded(self, timeout: float = 60.0) -> bool:
+        """等后台载入完成（给没有 Qt 事件循环的测试/脚本用；GUI 里不用调）"""
+        self._load_done.wait(timeout)
+        if not self._loaded:
+            self.on_load_finished(self._load_payload)
+        return self._loaded
+
+    def wait_search_done(self, timeout: float = 900.0) -> bool:
+        """等这次试检索出结果（给没有 Qt 事件循环的测试/脚本用；GUI 里不用调）
+
+        检索跑在工作线程里（首次要读整个索引，实测 105 秒），所以测试不能"点完就
+        断言结果"—— 那是 2026-10-17 把检索改成异步之后 smoke 报的回归。
+        """
+        if not self._search_done_evt.wait(timeout):
+            return False
+        if self.result_view.toPlainText().startswith("正在检索"):
+            # 没有事件循环时 search_finished 不会派发，手工把结果落到界面上
+            self.on_search_finished(self._search_payload)
+        return not self._searching
+
+    def documents(self):
+        """资料列表（载入时缓存；导入/删除/重建后置空重取）"""
+        if self._documents is None:
+            self._documents = self.kb.list_documents() if self.kb else []
+        return self._documents
+
+    def root_hint(self) -> str:
+        """界面先摆出来时显示的资料库目录（KB 还没建好就用默认值，载完再用真实值覆盖）"""
+        return self.kb.root if self.kb else DEFAULT_KNOWLEDGE_DIR
+
+    def done(self, code):
+        # 关闭后后台线程可能还要 emit：先置位让 on_load_finished 直接返回
+        self._closing = True
+        super().done(code)
 
     # ------------------------------------------------------------ 界面
     def init_ui(self):
@@ -91,8 +226,8 @@ class KnowledgeDialog(QDialog):
         # 目录信息
         path_group = QGroupBox("资料库目录")
         path_layout = QHBoxLayout()
-        self.path_label = QLabel(self.kb.root)
-        self.path_label.setStyleSheet("color: #a5b1ff;")
+        self.path_label = QLabel(self.root_hint())
+        self.path_label.setStyleSheet("color: #4C8DFF;")
         self.path_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse)
         path_layout.addWidget(self.path_label, 1)
@@ -105,6 +240,13 @@ class KnowledgeDialog(QDialog):
         btn_change_dir = QPushButton("更换目录…")
         btn_change_dir.clicked.connect(self.change_directory)
         path_layout.addWidget(btn_change_dir)
+
+        # 常驻入口：规范随包发布，用户/其它 AI 随时能打开照着准备资料
+        self.btn_import_spec = QPushButton("📖 导入规范")
+        self.btn_import_spec.setToolTip(
+            "打开《资料导入规范》：把它交给别的 AI，照规范准备资料，导入后即可被检索到")
+        self.btn_import_spec.clicked.connect(self.open_import_spec)
+        path_layout.addWidget(self.btn_import_spec)
 
         path_group.setLayout(path_layout)
         layout.addWidget(path_group)
@@ -157,7 +299,7 @@ class KnowledgeDialog(QDialog):
             "老版 .doc/.xls/.ppt 请先另存为新格式或导出 PDF。"
         )
         tip.setWordWrap(True)
-        tip.setStyleSheet("color: #98a1b5; font-size: 11px;")
+        tip.setStyleSheet("color: #93A0B4; font-size: 11px;")
         import_layout.addWidget(tip)
 
         import_group.setLayout(import_layout)
@@ -171,6 +313,14 @@ class KnowledgeDialog(QDialog):
         self.category_combo.setMinimumWidth(140)
         self.category_combo.currentIndexChanged.connect(self.refresh_table)
         filter_layout.addWidget(self.category_combo)
+
+        filter_layout.addWidget(QLabel("厂家:"))
+        self.vendor_combo = QComboBox()
+        self.vendor_combo.setMinimumWidth(130)
+        self.vendor_combo.setToolTip(
+            "按设备厂家筛选资料（厂家认自文件名，认不出的再看正文开头；只认一次后缓存）")
+        self.vendor_combo.currentIndexChanged.connect(self.refresh_table)
+        filter_layout.addWidget(self.vendor_combo)
 
         filter_layout.addWidget(QLabel("标签:"))
         self.tag_combo = QComboBox()
@@ -255,7 +405,7 @@ class KnowledgeDialog(QDialog):
         list_layout.addLayout(row4)
 
         self.stats_label = QLabel("-")
-        self.stats_label.setStyleSheet("color: #98a1b5;")
+        self.stats_label.setStyleSheet("color: #93A0B4;")
         list_layout.addWidget(self.stats_label)
 
         self.progress = QProgressBar()
@@ -276,7 +426,7 @@ class KnowledgeDialog(QDialog):
         hint = QLabel("输入关键词，验证 AI 能不能从本地资料里查到。"
                       "查得到说明导入生效，AI 之后也会用上这些内容。")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #98a1b5;")
+        hint.setStyleSheet("color: #93A0B4;")
         layout.addWidget(hint)
 
         search_row = QHBoxLayout()
@@ -293,7 +443,7 @@ class KnowledgeDialog(QDialog):
         self.result_view = QTextEdit()
         self.result_view.setReadOnly(True)
         self.result_view.setPlaceholderText("检索结果会显示命中的片段和来源文件")
-        self.result_view.setStyleSheet("background-color: #171a24; color: #e6e9f2;")
+        self.result_view.setStyleSheet("background-color: #151A23; color: #E6EAF2;")
         layout.addWidget(self.result_view, 1)
         return page
 
@@ -379,6 +529,8 @@ class KnowledgeDialog(QDialog):
     def after_change(self, rebuild: bool = True):
         """导入/删除/新建后的统一收尾"""
         self._note_cache.clear()
+        self._documents = None
+        self._stats_cache = None
         self.refresh_filter_options()
         self.refresh_table()
         if rebuild:
@@ -389,6 +541,8 @@ class KnowledgeDialog(QDialog):
 
     def refresh_all(self):
         self._note_cache.clear()
+        self._documents = None
+        self._stats_cache = None
         self.refresh_filter_options()
         self.refresh_table()
         self.refresh_stats()
@@ -396,6 +550,8 @@ class KnowledgeDialog(QDialog):
     # ------------------------------------------------------------ 索引
     def rebuild_index(self, force: bool = False):
         """后台重建索引，避免大 PDF 卡住界面"""
+        if not self._loaded or self.kb is None:
+            return
         if self.progress.isVisible():
             return
         self.progress.setVisible(True)
@@ -440,12 +596,15 @@ class KnowledgeDialog(QDialog):
     # ------------------------------------------------------------ 筛选
     def refresh_filter_options(self):
         """重建分类 / 标签下拉（保持当前选择）"""
+        if not self._loaded:
+            return
         notes = self.load_notes_cached()
         categories = collect_categories(notes)
         tags = collect_tags(notes)
 
         current_category = self.category_combo.currentData() or ""
         current_tag = self.tag_combo.currentData() or ""
+        current_vendor = self.vendor_combo.currentData() or ""
 
         self.category_combo.blockSignals(True)
         self.category_combo.clear()
@@ -455,6 +614,21 @@ class KnowledgeDialog(QDialog):
         index = self.category_combo.findData(current_category)
         self.category_combo.setCurrentIndex(index if index >= 0 else 0)
         self.category_combo.blockSignals(False)
+
+        # 厂家下拉：条数从多到少，用户一眼就能看出库里主要是哪家的资料
+        vendor_counts: Dict[str, int] = {}
+        for document in self.documents():
+            vendor = document.get("vendor") or "unknown"
+            vendor_counts[vendor] = vendor_counts.get(vendor, 0) + 1
+        self.vendor_combo.blockSignals(True)
+        self.vendor_combo.clear()
+        self.vendor_combo.addItem(ALL_VENDORS, "")
+        for vendor, count in sorted(vendor_counts.items(),
+                                    key=lambda kv: (-kv[1], kv[0])):
+            self.vendor_combo.addItem(f"{vendor_label(vendor)}（{count}）", vendor)
+        index = self.vendor_combo.findData(current_vendor)
+        self.vendor_combo.setCurrentIndex(index if index >= 0 else 0)
+        self.vendor_combo.blockSignals(False)
 
         self.tag_combo.blockSignals(True)
         self.tag_combo.clear()
@@ -467,6 +641,7 @@ class KnowledgeDialog(QDialog):
 
     def reset_filter(self):
         self.category_combo.setCurrentIndex(0)
+        self.vendor_combo.setCurrentIndex(0)
         self.tag_combo.setCurrentIndex(0)
         self.filter_input.clear()
         self.refresh_table()
@@ -480,7 +655,7 @@ class KnowledgeDialog(QDialog):
     def load_notes_cached(self):
         """读取笔记信息（按路径+修改时间缓存，避免反复读盘）"""
         notes = []
-        for document in self.kb.list_documents():
+        for document in self.documents():
             if not str(document.get("name", "")).lower().endswith(('.md', '.markdown', '.txt')):
                 continue
             key = (document["path"], document.get("mtime"))
@@ -493,17 +668,36 @@ class KnowledgeDialog(QDialog):
         return notes
 
     def find_note(self, name: str):
-        """按资料名找笔记信息"""
+        """按资料名找笔记信息（会全库解析笔记，只在确实需要全量时用）"""
         for note in self.load_notes_cached():
             if note["name"] == name:
                 return note
         return None
 
+    def note_for(self, document: dict):
+        """只解析这一篇的笔记信息（按路径 + mtime 缓存）。
+
+        2026-10-17：列表原来逐行调 find_note()，而 find_note 会走
+        load_notes_cached() 全库解析笔记 —— 本机 27297 篇时打开资料管理要几分钟。
+        改成按需解析：画多少行就解析多少篇，语义不变。
+        """
+        name = str(document.get("name", ""))
+        if not name.lower().endswith(('.md', '.markdown', '.txt')):
+            return None
+        key = (document["path"], document.get("mtime"))
+        if key not in self._note_cache:
+            try:
+                parsed = load_notes(self.kb, [document])
+            except Exception:
+                parsed = []
+            self._note_cache[key] = parsed[0] if parsed else None
+        return self._note_cache[key]
+
     def document_category(self, document: dict) -> str:
         """判断一份资料属于哪个分类（笔记取元信息，原始文档取目录名）"""
         name = str(document.get("name", ""))
         if name.lower().endswith(('.md', '.markdown', '.txt')):
-            note = self.find_note(name)
+            note = self.note_for(document)
             if note:
                 return note["category"] or "未分类"
         normalized = name.replace('\\', '/')
@@ -516,23 +710,29 @@ class KnowledgeDialog(QDialog):
         name = str(document.get("name", ""))
         if not name.lower().endswith(('.md', '.markdown', '.txt')):
             return ""
-        note = self.find_note(name)
+        note = self.note_for(document)
         return ", ".join(note["tags"]) if note else ""
 
     # ------------------------------------------------------------ 列表
     def refresh_table(self):
         """按筛选条件刷新资料列表"""
-        documents = self.kb.list_documents()
+        if not self._loaded:
+            return
+        documents = self.documents()
         category_filter, tag_filter, keyword = self.current_filters()
+        vendor_filter = self.vendor_combo.currentData() or ""
         keyword_lower = keyword.lower()
 
         self.table.setRowCount(0)
         shown = 0
+        truncated = False
         for document in documents:
             category = self.document_category(document)
             tags_text = self.document_tags(document)
 
             if category_filter and category != category_filter:
+                continue
+            if vendor_filter and (document.get("vendor") or "unknown") != vendor_filter:
                 continue
             if tag_filter:
                 tag_list = [t.strip() for t in tags_text.split(',') if t.strip()]
@@ -542,6 +742,10 @@ class KnowledgeDialog(QDialog):
                 haystack = f"{document['name']} {category} {tags_text}".lower()
                 if keyword_lower not in haystack:
                     continue
+
+            if shown >= MAX_TABLE_ROWS:
+                truncated = True
+                break
 
             row = self.table.rowCount()
             self.table.insertRow(row)
@@ -566,28 +770,33 @@ class KnowledgeDialog(QDialog):
             self.table.setItem(row, 6, QTableWidgetItem(document["mtime_text"]))
 
             if document["error"]:
-                status, color = document["error"][:30], "#f85149"
+                status, color = document["error"][:30], "#F85149"
             elif not document["supported"]:
-                status, color = "不支持的类型", "#f85149"
+                status, color = "不支持的类型", "#F85149"
             elif document["chunks"] == 0:
-                status, color = "待索引", "#d29922"
+                status, color = "待索引", "#D29922"
             else:
-                status, color = f"已索引({document['chunks']}段)", "#3fb950"
+                status, color = f"已索引({document['chunks']}段)", "#3FB950"
             status_item = QTableWidgetItem(status)
             status_item.setForeground(QColor(color))
             self.table.setItem(row, 7, status_item)
             shown += 1
 
-        if shown != len(documents):
+        total = len(documents)
+        if truncated:
             self.stats_label.setText(
-                f"筛选后显示 {shown} / {len(documents)} 项"
-            )
+                f"已显示前 {shown} 篇 / 共 {total} 篇"
+                f"（在筛选框输入关键字可缩小范围，检索测试页可全文检索）")
+        elif shown != total:
+            self.stats_label.setText(f"筛选后显示 {shown} / {total} 项")
         else:
             self.refresh_stats()
 
     def refresh_stats(self):
-        """刷新统计信息"""
-        stats = self.kb.stats()
+        """刷新统计信息（stats 在后台载入时已经算好，避免再走一遍盘）"""
+        if not self._loaded:
+            return
+        stats = self._stats_cache or self.kb.stats()
         self.path_label.setText(stats["root"])
         text = (f"共 {stats['documents']} 篇资料，{stats['chunks']} 个检索片段，"
                 f"占用 {self.human_size(stats['size'])}")
@@ -760,6 +969,66 @@ class KnowledgeDialog(QDialog):
         self._note_cache.clear()
         self.after_change(rebuild=True)
 
+    # ------------------------------------------------------------ 导入要求提示
+    def open_import_spec(self) -> bool:
+        """打开随包发布的《资料导入规范》；找不到就告诉用户去哪找"""
+        path = import_spec_path()
+        if not path:
+            QMessageBox.information(
+                self, "资料导入规范",
+                "没找到《资料导入规范.md》。\n\n"
+                "它随交付包一起发布，应该在程序目录下；开发环境里在 docs\\资料导入规范.md。")
+            return False
+        try:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            return True
+        except Exception as e:
+            QMessageBox.information(self, "资料导入规范", f"{path}\n\n打开失败: {e}")
+            return False
+
+    def should_show_import_tip(self) -> bool:
+        """要不要弹「资料导入要求」：勾过"不再显示"就不再弹，没勾就每次都弹"""
+        return not bool(self.settings.get(IMPORT_TIP_KEY, False))
+
+    def dismiss_import_tip(self):
+        """勾了"不再显示"：落盘，之后不再弹"""
+        self.settings.set(IMPORT_TIP_KEY, True)
+        self.settings.save()
+
+    def showEvent(self, event):        # noqa: N802 —— Qt 的命名
+        """打开资料管理：① 居中显示 ② 弹一次导入要求（不勾"不再显示"则每次都弹）"""
+        super().showEvent(event)
+        if not getattr(self, "_centered", False):
+            self._centered = True
+            # 只居中一次：之后用户自己挪过位置，再来回切标签不该被拽回中间
+            center_on_screen(self, self.parent())
+        if not getattr(self, "_tip_shown", False):
+            self._tip_shown = True
+            if self.should_show_import_tip():
+                QTimer.singleShot(0, self.show_import_tip)
+
+    def show_import_tip(self):
+        """资料该怎么准备：要点 + 打开完整规范 + 不再显示"""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle("资料导入要求（先看这一条）")
+        box.setText("资料不是丢进去就能用 —— 想让 AI 查得准，得按《资料导入规范》整理。")
+        box.setInformativeText(
+            "要点：UTF-8 且无 BOM（GBK 会被静默替换成乱码，日志不报错）；\n"
+            "小节标题用 ##~#### 且 # 后必须有空格；第一个标题之前的正文会被整段丢弃；\n"
+            "<!-- source: 原始出处 --> 必须放在正文最前面；别写超长单行；\n"
+            ".chm / .pdf 先用文档工具转成 markdown 再导入。\n\n"
+            "完整规范随包发布，点「打开规范」或目录行的「📖 导入规范」随时看。")
+        chk = QCheckBox("不再显示（勾了以后打开资料管理不再弹）")
+        box.setCheckBox(chk)
+        btn_spec = box.addButton("📖 打开规范", QMessageBox.ButtonRole.ActionRole)
+        box.addButton("我知道了", QMessageBox.ButtonRole.AcceptRole)
+        box.exec()
+        if chk.isChecked():
+            self.dismiss_import_tip()
+        if box.clickedButton() is btn_spec:
+            self.open_import_spec()
+
     def on_enabled_changed(self, _state):
         """开关本地资料检索"""
         enabled = self.chk_enabled.isChecked()
@@ -770,7 +1039,12 @@ class KnowledgeDialog(QDialog):
 
     # ------------------------------------------------------------ 检索测试
     def test_search(self):
-        """在本地资料库里试检索，验证导入是否生效"""
+        """在本地资料库里试检索，验证导入是否生效
+
+        ⚠ 检索必须**在工作线程**里跑：首次检索要把整个索引读进内存（实测 6.8 GB、
+        81 秒），放在主线程就是"点了检索界面冻结 107 秒"（2026-10-17 用鼠标/键盘
+        驱动真实界面测出来的）。这里只负责起线程，结果由 search_finished 回到主线程。
+        """
         query = self.query_input.text().strip()
         if not query:
             return
@@ -778,11 +1052,46 @@ class KnowledgeDialog(QDialog):
             self.result_view.setPlainText(
                 "本地资料检索已关闭，请勾选「查命令时检索本地资料库」。")
             return
+        if self._searching:
+            return                                   # 已在检索，别重复起线程
+        self._searching = True
+        self._search_started = time.monotonic()
+        self._search_done_evt.clear()
+        self._search_payload = None
+        self.result_view.setPlainText(
+            f"正在检索「{query}」…\n\n"
+            "首次检索需要把资料库索引读进内存，可能要一两分钟；"
+            "界面不会卡住，可以先切到别的标签页。")
+        threading.Thread(target=self._search_worker, args=(query,),
+                         name="kb-dialog-search", daemon=True).start()
 
-        hits = self.kb.search(query, top_k=5)
+    def _search_worker(self, query: str):
+        payload = {"query": query, "hits": None, "error": ""}
+        try:
+            payload["hits"] = self.kb.search(query, top_k=5)
+        except Exception as e:                       # noqa: BLE001
+            payload["error"] = f"{type(e).__name__}: {e}"
+        self._search_payload = payload
+        self._search_done_evt.set()                  # 在工作线程里置位：没有 Qt 事件
+        try:                                         # 循环的测试也等得到（信号不派发也不卡）
+            self.search_finished.emit(payload)
+        except RuntimeError:
+            pass                                     # 对话框已销毁
+
+    def on_search_finished(self, payload: dict = None):
+        """检索回来（主线程）：填结果"""
+        self._searching = False
+        self._search_done_evt.set()
+        payload = payload or {}
+        query = payload.get("query", "")
+        cost = time.monotonic() - (self._search_started or time.monotonic())
+        if payload.get("error"):
+            self.result_view.setPlainText(f"检索失败：{payload['error']}")
+            return
+        hits = payload.get("hits") or []
         if not hits:
             self.result_view.setPlainText(
-                f"「{query}」在本地资料库中没有命中。\n\n"
+                f"「{query}」在本地资料库中没有命中（用时 {cost:.1f}s）。\n\n"
                 "可以试试：\n"
                 "· 换更具体的关键词（带上型号或完整命令）\n"
                 "· 确认文件状态是「已索引」（未索引的点「重建索引」）\n"
@@ -790,7 +1099,7 @@ class KnowledgeDialog(QDialog):
             )
             return
 
-        lines = [f"「{query}」命中 {len(hits)} 条：\n"]
+        lines = [f"「{query}」命中 {len(hits)} 条（用时 {cost:.1f}s）：\n"]
         for index, hit in enumerate(hits, start=1):
             lines.append(f"[{index}] {hit['source']}（第 {hit['chunk_index'] + 1} 段，"
                          f"匹配度 {hit['score']}）")

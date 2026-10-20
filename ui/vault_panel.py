@@ -1,18 +1,17 @@
 """
-设备库面板 (Vault) —— 参考 NetCatty 风格
+设备库面板 (Vault) —— 设备卡片列表
 
-每台设备是一张大圆角卡片，左侧有品牌色圆形图标（按厂商/协议着色），
-右侧上方是设备名、下方是 user@host:port，已连接时右侧出现一个绿点。
-双击连接，右键弹出菜单（连接 / 编辑 / 删除）。
-顶部有搜索框与 "+ 新建" 青色按钮。
+每台设备一张卡片，左侧圆角图标（按厂商/协议着色），右侧上方设备名、
+下方 user@host:port，已连接时右侧出现一个绿点。双击连接，右键菜单。
+配色全部取自 ui/theme.py 的 token，跟着主题走。
 """
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QPushButton,
-    QLineEdit, QScrollArea, QSizePolicy, QMenu, QGraphicsDropShadowEffect
+    QLineEdit, QScrollArea, QSizePolicy, QMenu
 )
+
+from ui.theme import P
 
 
 def _device_key(cfg: dict) -> tuple:
@@ -41,19 +40,24 @@ def _icon_letter(cfg: dict) -> str:
 
 
 def _icon_color(cfg: dict) -> str:
+    """图标底色：按厂商/协议区分，用 One Dark 原生的一组色
+
+    只靠色相区分，用的是 One Dark 官方调色板里的色；
+    这几个色都偏亮，所以图标里的字用深色（见 HostCard._apply_style）。
+    """
     v = (cfg.get('vendor') or '').lower()
     p = (cfg.get('protocol') or '').lower()
     if v == 'h3c' or v in ('huawei', 'vrp', 'hw'):
-        return '#f97316'  # 橙
+        return '#d19a66'      # 橙（H3C / 华为）
     if v == 'cisco':
-        return '#3b82f6'  # 蓝
+        return '#4C8DFF'      # 天蓝（思科）
     if v == 'ruijie':
-        return '#a855f7'  # 紫
+        return '#9CC2FF'      # 紫（锐捷）
     if p == 'telnet':
-        return '#f59e0b'  # 琥珀
+        return '#D29922'      # 黄（Telnet）
     if p == 'serial':
-        return '#10b981'  # 翠绿
-    return '#7c8cf8'      # 靛蓝（默认 SSH，与主题强调色一致）
+        return '#3FB950'      # 绿（Console）
+    return '#4C8DFF'          # 青（默认 SSH）
 
 
 def _subtitle(cfg: dict) -> str:
@@ -72,16 +76,20 @@ def _subtitle(cfg: dict) -> str:
 
 
 class HostCard(QFrame):
-    """一张大圆角设备卡片"""
+    """一台设备一行（选中的那行用 IDE 的深蓝底）"""
     clicked = pyqtSignal(dict)
     double_clicked = pyqtSignal(dict)
     context_requested = pyqtSignal(dict, object)  # config, global QPoint
+
+    #: 行高做紧凑些：工具窗口里的列表该像 IDE 那样密，而不是网页那种大卡片
+    ROW_HEIGHT = 54
+    ICON_SIZE = 32
 
     def __init__(self, config: dict, parent=None):
         super().__init__(parent)
         self.config = config
         self.setObjectName("HostCard")
-        self.setFixedHeight(72)
+        self.setFixedHeight(self.ROW_HEIGHT)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.selected = False
         self.connected = False
@@ -90,13 +98,13 @@ class HostCard(QFrame):
 
     def _build(self):
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(12)
+        layout.setContentsMargins(8, 6, 10, 6)
+        layout.setSpacing(10)
 
-        # 品牌色圆形图标
+        # 厂商/协议色圆形图标
         self.icon = QLabel(_icon_letter(self.config))
         self.icon.setObjectName("HostCardIcon")
-        self.icon.setFixedSize(44, 44)
+        self.icon.setFixedSize(self.ICON_SIZE, self.ICON_SIZE)
         self.icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.icon)
 
@@ -124,28 +132,28 @@ class HostCard(QFrame):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_context)
 
-        # 仿 Netcatty 的卡片柔和阴影（QSS 不支持 box-shadow，用图形效果实现）
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(18)
-        shadow.setOffset(0, 3)
-        shadow.setColor(QColor(0, 0, 0, 110))
-        self.setGraphicsEffect(shadow)
-
     def _apply_style(self):
+        """按状态上色：选中用主题的选中灰底 + 天蓝描边，未选中是比面板亮一档的卡片色"""
         if self.selected:
-            bg, border = '#232a45', '#7c8cf8'
+            bg, border = P["bg_active"], P["accent"]
+            title_fg, sub_fg = P["fg_strong"], "#c8ccd4"
         else:
-            bg, border = '#1e222f', 'rgba(43, 49, 67, 0.85)'
+            bg, border = P["bg_sunken"], P["border"]
+            title_fg, sub_fg = P["fg_strong"], P["fg_muted"]
         self.setStyleSheet(
-            f"QFrame#HostCard {{ background:{bg}; border:1px solid {border}; border-radius:12px; }}"
-            f"QFrame#HostCard:hover {{ background:#242938; border-color:#39415a; }}"
-            f"QLabel#HostCardIcon {{ background:{_icon_color(self.config)}; color:#ffffff;"
-            f" border-radius:22px; font-weight:bold; font-size:16px; }}"
-            f"QLabel#HostCardTitle {{ color:#e6e9f2; font-weight:bold; font-size:13px;"
+            f"QFrame#HostCard {{ background:{bg}; border:1px solid {border};"
+            f" border-radius:8px; }}"
+            f"QFrame#HostCard:hover {{ background:{P['bg_hover']};"
+            f" border-color:{P['border_soft']}; }}"
+            # 图标底色都是偏亮的 One Dark 色，字用深色才看得清
+            f"QLabel#HostCardIcon {{ background:{_icon_color(self.config)};"
+            f" color:{P['bg_panel']}; border-radius:{self.ICON_SIZE // 2}px;"
+            f" font-weight:bold; font-size:13px; }}"
+            f"QLabel#HostCardTitle {{ color:{title_fg}; font-weight:bold;"
+            f" font-size:13px; background:transparent; border:none; }}"
+            f"QLabel#HostCardSub {{ color:{sub_fg}; font-size:11px;"
             f" background:transparent; border:none; }}"
-            f"QLabel#HostCardSub {{ color:#98a1b5; font-size:11px;"
-            f" background:transparent; border:none; }}"
-            f"QLabel#HostCardDot {{ color:#3fb950; font-size:14px;"
+            f"QLabel#HostCardDot {{ color:{P['ok']}; font-size:14px;"
             f" background:transparent; border:none; }}"
         )
 
@@ -177,6 +185,7 @@ class VaultPanel(QWidget):
 
     信号:
         connect_requested(dict):  请求连接
+        disconnect_requested(dict): 请求断开连接
         add_requested():          请求新建连接
         edit_requested(dict):     请求编辑
         delete_requested(dict):   请求删除
@@ -184,6 +193,7 @@ class VaultPanel(QWidget):
     """
 
     connect_requested = pyqtSignal(dict)
+    disconnect_requested = pyqtSignal(dict)
     add_requested = pyqtSignal()
     edit_requested = pyqtSignal(dict)
     delete_requested = pyqtSignal(dict)
@@ -241,7 +251,7 @@ class VaultPanel(QWidget):
         self.cards_host.setObjectName("VaultCardsHost")
         self.cards_layout = QVBoxLayout(self.cards_host)
         self.cards_layout.setContentsMargins(0, 0, 0, 0)
-        self.cards_layout.setSpacing(8)
+        self.cards_layout.setSpacing(2)
         self.cards_layout.addStretch(1)
         self.scroll.setWidget(self.cards_host)
         root.addWidget(self.scroll, 1)
@@ -287,8 +297,12 @@ class VaultPanel(QWidget):
                 w.set_selected(_device_key(w.config) == self._selected_key)
 
     def _show_card_menu(self, cfg: dict, global_pos):
+        is_connected = _device_key(cfg) in self._connected_keys
         menu = QMenu(self)
-        menu.addAction("连接")
+        if is_connected:
+            menu.addAction("断开连接")
+        else:
+            menu.addAction("连接")
         menu.addSeparator()
         menu.addAction("编辑")
         menu.addAction("删除")
@@ -298,6 +312,8 @@ class VaultPanel(QWidget):
         text = act.text()
         if text == "连接":
             self.connect_requested.emit(cfg)
+        elif text == "断开连接":
+            self.disconnect_requested.emit(cfg)
         elif text == "编辑":
             self.edit_requested.emit(cfg)
         elif text == "删除":
@@ -309,6 +325,11 @@ class VaultPanel(QWidget):
             self._connected_keys.add(key)
         else:
             self._connected_keys.discard(key)
+        self._refresh_connected()
+
+    def sync_connected_keys(self, keys):
+        """用一批设备键整体重建连接状态（会话关闭后同步绿点用）"""
+        self._connected_keys = set(keys)
         self._refresh_connected()
 
     def _refresh_connected(self):

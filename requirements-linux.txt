@@ -1,0 +1,13 @@
+PyQt6>=6.6
+paramiko>=3.0
+pyserial>=3.5
+anthropic>=0.40
+python-dotenv>=1.0
+pypdf>=4.0
+numpy>=1.26
+# ENS P Pro 连接器（core/ensp_client.py、core/ensp_connector.py）直接 import
+requests>=2.31
+urllib3>=2.0
+websocket-client>=1.7
+# 打包工具（运行时不需要，仅构建机安装）
+pyinstaller>=6.10

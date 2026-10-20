@@ -184,6 +184,31 @@ FAIL_PATTERNS = (
 )
 
 
+#: 线路上的 CR NUL 修饰（RFC 854：CR 后面跟 NUL 表示"这一行只回车不换行"）。
+#: 实测 H3C Comware 7 每打一行都是 "\r\x00\r\n"：先 CR NUL 回到行首，再 CR LF 换行。
+#: 旧代码把中间那个裸 \r 当成"进度条重写当前行"，**每一行刚打出来就被自己抹掉** ——
+#: 用户看到的就是"设备明明有数据，界面只有一行 ---- More ----"（2026-10-19 反馈）。
+_CR_NUL_CRLF = "\r\x00\r\n"
+_CR_NUL = "\r\x00"
+
+
+def clean_telnet_text(text: str) -> str:
+    """把 telnet 线路上的 CR NUL 修饰清掉，交给界面的是正常的 \\r\\n 行尾
+
+    顺序不能反：先合并"CR NUL + CR LF"这一个完整行尾，再把剩下的 CR NUL 还原成
+    裸 CR（那是真的"回到行首重写"，比如进度条），最后丢掉孤立的 NUL。
+    """
+    if not text:
+        return text
+    if _CR_NUL_CRLF in text:
+        text = text.replace(_CR_NUL_CRLF, "\r\n")
+    if _CR_NUL in text:
+        text = text.replace(_CR_NUL, "\r")
+    if "\x00" in text:
+        text = text.replace("\x00", "")
+    return text
+
+
 class TelnetConnector(BaseConnector):
     """Telnet连接器"""
 
@@ -307,8 +332,16 @@ class TelnetConnector(BaseConnector):
                     except Exception:
                         pass
                     msg = verify.decode("utf-8", errors="replace").strip()
+                    if verify in (b"password: ", b"passwd:", b"password:"):
+                        # 设备什么都没说，只是又要求输一次密码 —— 这就是口令被拒
+                        reason = "设备又要求输入密码（说明上一口令被拒绝）"
+                    elif verify == b"% login":
+                        reason = "设备拒绝了这次登录（% Login invalid）"
+                    else:
+                        reason = f"设备返回 \"{msg}\""
                     self.error_occurred.emit(
-                        f"Telnet登录失败：设备返回 \"{msg}\"")
+                        f"Telnet登录失败：{reason}。请确认密码/用户名是否正确；"
+                        f"连续多次失败部分设备会临时锁定账号 5 分钟")
                     return False
 
             self._host = host
@@ -325,7 +358,8 @@ class TelnetConnector(BaseConnector):
 
             # 4) 登录阶段读到的内容交给会话，避免开头输出丢失
             if self._login_buffer:
-                leftover = self._login_buffer.decode('utf-8', errors='replace')
+                leftover = clean_telnet_text(
+                    self._login_buffer.decode('utf-8', errors='replace'))
                 self._login_buffer = b""
                 with self._lock:
                     self._buffer += leftover
@@ -344,6 +378,9 @@ class TelnetConnector(BaseConnector):
         while self._running and self.tn:
             try:
                 data = self.tn.read_very_eager().decode('utf-8', errors='replace')
+                # CR NUL 必须在这里就清掉：它进了界面会被当成"整行重写"，
+                # 把设备刚打的每一行抹掉（见 clean_telnet_text 的注释）
+                data = clean_telnet_text(data)
                 if data:
                     with self._lock:
                         self._buffer += data

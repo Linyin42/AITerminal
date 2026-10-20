@@ -122,9 +122,16 @@ def sheet_xml(rows: Sequence[Sequence], column_widths: Sequence[float] = None,
                 parts.append(f'<c r="{reference}" s="{style}"><v>{value}</v></c>')
             else:
                 text = escape(clean_text(value))
+                if not text:
+                    # 空串用"不写这一格"表达：Excel 认为空格子就是空，
+                    # 写成 <t></t> 反而多一份解析负担，个别版本还会当损坏
+                    continue
+                # 文本必须包在 <is> 里（<c t="inlineStr"><is><t>…</t></is></c>）。
+                # 少这一层时 Excel/WPS 会把整格当空：用户 2026-10-19 看到的
+                # "导出来的数据谁看的懂"——只剩序号/耗时这些数字列有内容。
                 parts.append(
                     f'<c r="{reference}" s="{style}" t="inlineStr">'
-                    f'<t xml:space="preserve">{text}</t></c>'
+                    f'<is><t xml:space="preserve">{text}</t></is></c>'
                 )
         parts.append('</row>')
     parts.append('</sheetData></worksheet>')

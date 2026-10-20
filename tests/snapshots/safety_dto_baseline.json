@@ -1,0 +1,29 @@
+{
+  "cases": [
+    {
+      "command": "display version",
+      "response": {
+        "command": "display version",
+        "config": false,
+        "describe": "共 1 条命令：只读 1 条，配置 0 条\n\n只读命令:\n  1. display version",
+        "notes": [],
+        "read_only": true
+      },
+      "tag": "readonly"
+    },
+    {
+      "command": "system-view",
+      "response": {
+        "command": "system-view",
+        "config": true,
+        "describe": "共 1 条命令：只读 0 条，配置 1 条\n\n配置类命令（会修改设备）:\n  1. system-view\n\n风险提示:\n  ! 设备将进入配置视图",
+        "notes": [
+          "设备将进入配置视图"
+        ],
+        "read_only": false
+      },
+      "tag": "mutating"
+    }
+  ],
+  "note": "S5 等价门槛基线：两条固定命令（只读/改配置）的 safety.check 现有字段；搬运后必须 0 差异"
+}

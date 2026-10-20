@@ -12,7 +12,7 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, "settings.json")
 
 DEFAULTS: Dict[str, Any] = {
     "api_key": "",
-    "ai_provider": "anthropic",     # anthropic / deepseek / openai_compat
+    "ai_provider": "anthropic",     # anthropic / deepseek / longcat / openai_compat
     "api_base": "",                 # OpenAI 兼容协议的接口地址（留空用提供方默认）
     "provider_keys": {},            # {提供方: 密钥}，切换提供方时各存各的
     "provider_configs": {},         # {提供方: {"model":…, "base_url":…}}
@@ -27,10 +27,13 @@ DEFAULTS: Dict[str, Any] = {
     "log_dir": "",                  # 空 = ~/.aiterminal/logs
     "restore_sessions": True,       # 启动时询问是否恢复上次的会话
     "save_passwords": False,        # 是否在会话列表中保存密码（仅混淆，非加密）
+    "control_api_enabled": False,   # 外部接管（DSH/MCP）回环控制通道：默认关
     "batch_delay_ms": 500,          # 批量下发命令间隔
     "batch_wait_mode": "prompt",    # prompt=等提示符返回 / delay=固定间隔
     "batch_prompt_timeout": 30,     # 等提示符的最长等待秒数
     "batch_auto_page": True,        # 遇到分页标记自动翻页
+    "session_auto_page": True,      # 交互会话也自动应答 ---- More ----（设备停在分页
+                                    # 时用户看到的就是"设备有数据、界面没内容"）
     "confirm_config_commands": True,  # 配置类命令下发前必须人工确认（安全闸门）
     # 多设备并发巡检
     "patrol_concurrency": 4,
@@ -50,6 +53,15 @@ DEFAULTS: Dict[str, Any] = {
     "knowledge_enabled": True,      # 查命令时是否检索本地资料
     "knowledge_top_k": 4,           # 本地检索返回的片段数
     "knowledge_max_chars": 4000,    # 本地检索结果最多取多少字符
+    # 启动就建/加载资料库索引？默认 False：`.index.json` 本机实测 676 MB，读成
+    # Python 对象后常驻内存好几 GB；不用资料库时纯属白占（要跑模拟器时尤其明显）。
+    # 关掉不影响功能：打开资料管理 / 导入资料 / AI 检索时会自动建与加载。
+    "knowledge_autobuild": False,
+    # 应用启动后自动拉起本地模型（起在**显存**上，不占内存；Vulkan 后端）。
+    # 默认关；打开后"软件一起来"本地 LLM 就在 GPU 上跑着，AI 提供方选 local 即可用。
+    "local_model_autostart": False,
+    # 「打开资料管理先弹导入要求」：勾过"不再显示"写 True；不勾就每次弹（2026-10-17）
+    "import_tip_dismissed": False,
     # Console / 串口默认参数
     "serial_defaults": {
         "baudrate": 9600,
@@ -60,9 +72,9 @@ DEFAULTS: Dict[str, Any] = {
         "line_ending": "\r",
         "char_delay_ms": 0,
         "auto_reconnect": True,
-        # 串口 / Console 设备通常不回显你敲的字符，默认开本地回显，
-        # 否则会以为"输入没反应"（要按回车才看到）。设备若自带回显可关掉。
-        "local_echo": True,
+        # 网络设备（交换机/路由器）Console 口基本都自带回显，默认关掉本地回显；
+        # 设备确实不回显（如部分 BootROM）时才勾选 —— 否则两边同时回显，屏幕会重影
+        "local_echo": False,
     },
     "last_connection": {},
     "recent_connections": [],
@@ -162,8 +174,21 @@ class Settings:
     # ------------------------------------------------------------ 大模型提供方
     @property
     def ai_provider(self) -> str:
+        """当前提供方（非法值回落到 anthropic）
+
+        ⚠ 白名单必须取自 `core.llm.PROVIDERS`（唯一真源），**不能硬编码**。
+        踩过的坑：这里原本写死 `("anthropic", "deepseek", "openai_compat")`，
+        于是把 `ai_provider` 设成新加的 `longcat` 时属性**静默**返回 `anthropic` ——
+        症状是"未安装 anthropic 库，请执行 pip install anthropic"，
+        你会跑去装库、查网络，而真正的原因是白名单没加。
+        """
         name = (self.get("ai_provider") or "anthropic").lower()
-        return name if name in ("anthropic", "deepseek", "openai_compat") else "anthropic"
+        try:
+            from core.llm import PROVIDERS          # noqa: WPS433（函数内导入，避免循环）
+            known = tuple(PROVIDERS.keys())
+        except Exception:                           # noqa: BLE001
+            known = ("anthropic", "deepseek", "longcat", "openai_compat")
+        return name if name in known else "anthropic"
 
     @ai_provider.setter
     def ai_provider(self, value: str):
@@ -275,8 +300,18 @@ class Settings:
 
     # ------------------------------------------------------------ 设备库 Vault
     def _vault_key(self, config: Dict[str, Any]):
-        """设备去重键：协议 + 主机(或串口) + 端口"""
+        """设备去重键：协议 + 主机(或串口) + 端口
+
+        eNSP Pro 是例外：同一台服务器上所有设备的 host 与 port 完全相同，
+        只用「协议+主机+端口」会导致第二台设备覆盖第一台。
+        所以 eNSP 的去重键要再带上沙箱号与设备号。
+        """
         host = config.get('host') or config.get('serial_port') or ''
+        proto = (config.get('protocol') or '').strip().lower()
+        if proto in ('ensp', 'ensp-pro', 'ensppro', 'ensp pro'):
+            sandbox = config.get('sandbox_id', 0) or 0
+            node = config.get('node_id', 0) or 0
+            host = '%s#s%sd%s' % (host, sandbox, node)
         return (config.get('protocol'), host, config.get('port'))
 
     def get_vault_devices(self) -> List[Dict[str, Any]]:
@@ -296,12 +331,13 @@ class Settings:
         把一台设备加入设备库（连接成功后调用）。
 
         按 协议+主机+端口 去重：已存在则更新名称/厂商等信息，不重复添加。
-        不保存密码等敏感字段。返回是否新增了设备。
+        当 config 有 remember=True 或全局 save_passwords=True 时，
+        用 base64 混淆存储 password 和 key_filename，否则剥离敏感字段。
+        返回是否新增了设备。
         """
         if not config:
             return False
-        pure = {k: v for k, v in config.items()
-                if k not in ('password', 'key_filename', 'remember')}
+        pure = self._sanitize_vault_config(config)
         pure.setdefault('name', pure.get('host') or pure.get('serial_port') or '设备')
         devices = self.get_vault_devices()
         key = self._vault_key(pure)
@@ -320,14 +356,43 @@ class Settings:
         self.save()
         return True
 
-    def update_vault_device(self, config: Dict[str, Any]) -> bool:
-        """更新设备库里某台设备的信息（按 key 匹配）"""
-        if not config:
-            return False
+    def _sanitize_vault_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        把一份连接配置处理成可存入 Vault 的版本：
+        - remember=True 或全局 save_passwords=True 时，用 base64 混淆存密码和密钥文件
+        - 否则剥离 password / key_filename / remember
+        """
+        want_password = bool(
+            config.get('remember')
+            or self.get('save_passwords', False)
+        )
         pure = {k: v for k, v in config.items()
                 if k not in ('password', 'key_filename', 'remember')}
+        if want_password:
+            pwd = config.get('password', '')
+            if pwd and not pwd.startswith('b64:'):
+                pwd = self.encode_password(pwd)
+            if pwd:
+                pure['password'] = pwd
+            kf = config.get('key_filename', '')
+            if kf:
+                pure['key_filename'] = kf
+            pure['remember'] = True
+        return pure
+
+    def update_vault_device(self, config: Dict[str, Any],
+                            old_config: Dict[str, Any] = None) -> bool:
+        """更新设备库里某台设备的信息（按 key 匹配）
+
+        old_config：编辑**之前**的原记录。必须传 —— 用户把主机/端口改掉之后，
+        key 就变了，用新 key 去匹配会找不到旧记录，于是变成"新增一条、旧的还在"
+        （用户反馈：改完设备库里出现重复项）。
+        """
+        if not config:
+            return False
+        pure = self._sanitize_vault_config(config)
         devices = self.get_vault_devices()
-        key = self._vault_key(pure)
+        key = self._vault_key(old_config) if old_config else self._vault_key(pure)
         for index, device in enumerate(devices):
             if self._vault_key(device) == key:
                 merged = dict(device)
@@ -404,6 +469,11 @@ class Settings:
     @property
     def batch_auto_page(self) -> bool:
         return bool(self.get("batch_auto_page", True))
+
+    @property
+    def session_auto_page(self) -> bool:
+        """交互会话要不要自动应答分页标记（---- More ----）"""
+        return bool(self.get("session_auto_page", True))
 
     @property
     def confirm_config_commands(self) -> bool:

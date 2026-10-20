@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from core.diff import diff_lines, summarize, to_unified
+from ui.theme import P
 
 
 class DiffDialog(QDialog):
@@ -98,7 +99,7 @@ class DiffDialog(QDialog):
         result_header = QHBoxLayout()
         result_header.addWidget(QLabel("差异结果"))
         self.summary_label = QLabel("尚未对比")
-        self.summary_label.setStyleSheet("color: #98a1b5;")
+        self.summary_label.setStyleSheet(f"color: {P['fg_muted']};")
         result_header.addWidget(self.summary_label)
         result_header.addStretch()
 
@@ -109,7 +110,8 @@ class DiffDialog(QDialog):
 
         self.diff_view = QTextEdit()
         self.diff_view.setReadOnly(True)
-        self.diff_view.setStyleSheet("background-color: #171a24; border: 1px solid #2b3143;")
+        self.diff_view.setStyleSheet(
+            f"background-color: {P['bg']}; border: 1px solid {P['border']};")
         layout.addWidget(self.diff_view, 1)
 
         # 底部
@@ -202,17 +204,17 @@ class DiffDialog(QDialog):
         self.render_diff(diff)
 
     def render_diff(self, diff):
-        """按行着色渲染差异"""
+        """按行着色渲染差异（颜色取自主题 token，跟着主题走）"""
         colors = {
-            '+': '#3fb950',
-            '-': '#f85149',
-            '@': '#7c8cf8',
-            ' ': '#98a1b5',
+            '+': P["ok"],
+            '-': P["err"],
+            '@': P["accent"],
+            ' ': P["fg_muted"],
         }
         spans = []
         for tag, line in diff:
             prefix = '' if tag == '@' else tag
-            color = colors.get(tag, '#e6e9f2')
+            color = colors.get(tag, P["fg"])
             spans.append(
                 f'<span style="color:{color};">{prefix}{html.escape(line)}</span>'
             )

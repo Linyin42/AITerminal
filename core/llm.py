@@ -1,5 +1,5 @@
 """
-大模型客户端 - 统一 Anthropic 与 OpenAI 兼容接口（DeepSeek / 本地模型 / 中转站）
+大模型客户端 - 统一 Anthropic 与 OpenAI 兼容接口（DeepSeek / LongCat / 本地模型 / 中转站）
 
 设计:
     · 上层（AIAgent）只调用 `LLMClient.chat()`，不关心是哪家
@@ -35,12 +35,37 @@ PROVIDERS = {
         "models": ["deepseek-chat", "deepseek-reasoner"],
         "key_hint": "sk-...",
     },
+    "longcat": {
+        # 美团 LongCat（龙猫）。同一套 key 既走 OpenAI 兼容端点也走 Anthropic 端点，
+        # 这里只用 OpenAI 兼容的（见 chat_url：/openai + /v1/chat/completions）。
+        # ⚠ base_url 必须带 /openai 这一段，不能只填 https://api.longcat.chat ——
+        # 少了它拼出来的是 /v1/chat/completions（那是它的"模型列表"端点，会 404）。
+        "label": "LongCat（美团龙猫）",
+        "base_url": "https://api.longcat.chat/openai",
+        "model": "LongCat-2.0",
+        "models": ["LongCat-2.0", "LongCat-2.5-Preview"],
+        "key_hint": "ak_...",
+    },
     "openai_compat": {
         "label": "OpenAI 兼容接口（自建/中转/本地）",
         "base_url": "https://api.openai.com/v1",
         "model": "gpt-4o-mini",
         "models": ["gpt-4o-mini", "gpt-4o", "qwen-plus", "glm-4-plus"],
         "key_hint": "按服务商要求填写",
+    },
+    # 本机离线模型（llama.cpp）。与 openai_compat 走**同一条**代码路径
+    # （core/llm.py:75-89 拼 /v1/chat/completions、:186-259 发请求），
+    # 单独列出来只是为了让用户在设置里一眼看到"不用联网、不用密钥"。
+    # ⚠ default_key 必须与 local_llm/run_server.py:36 API_KEY 完全一致：
+    # 那边启动时传了 --api-key，这里少一个字符就是 401。
+    "local": {
+        "label": "本地模型（本机离线 · llama.cpp）",
+        "base_url": "http://127.0.0.1:8080/v1",
+        "model": "local-llm",
+        "models": ["local-llm"],
+        "key_hint": "本地服务占位密钥，默认 local-llm（与 run_server.py 的 --api-key 一致）",
+        "no_key": True,
+        "default_key": "local-llm",
     },
 }
 
@@ -83,21 +108,33 @@ class LLMClient:
     统一的大模型客户端
 
     参数:
-        provider: anthropic / deepseek / openai_compat
+        provider: anthropic / deepseek / longcat / openai_compat
         api_key: 密钥
         model: 模型名
         base_url: 接口地址（OpenAI 兼容协议用；Anthropic 忽略）
         timeout: 单次请求超时秒数
+        extra_body: 额外的请求体字段（仅 OpenAI 兼容协议），原样并进 payload。
+            给"某家专有开关"留的口子 —— 例如 LongCat 的
+            `{"thinking": {"type": "disabled"}}`。**不要**把这类字段写死在
+            payload 里：DeepSeek 收到不认识的字段会直接 400。
     """
 
     def __init__(self, provider: str = DEFAULT_PROVIDER, api_key: str = "",
-                 model: str = "", base_url: str = "", timeout: int = 90):
+                 model: str = "", base_url: str = "", timeout: int = 90,
+                 extra_body: dict = None):
         self.provider = (provider or DEFAULT_PROVIDER).lower()
         defaults = provider_defaults(self.provider)
         self.api_key = (api_key or "").strip()
         self.model = (model or defaults["model"]).strip()
         self.base_url = (base_url or defaults["base_url"]).strip()
+        # 本地模型不要求用户填密钥，但全链路（configured / chat）都要求非空，
+        # 否则界面会拦在"请先填写 API Key"、用户以为本地也要买 key。
+        # 这里补占位值，且必须与 run_server.py 的 --api-key 一致。
+        self.no_key = bool(defaults.get("no_key"))
+        if self.no_key and not self.api_key:
+            self.api_key = (defaults.get("default_key") or "local-llm").strip()
         self.timeout = max(5, int(timeout))
+        self.extra_body = dict(extra_body or {})
         self._anthropic_client = None
 
     # ------------------------------------------------------------ 信息
@@ -176,6 +213,9 @@ class LLMClient:
             "temperature": temperature,
             "stream": False,
         }
+        # 提供方专有开关（LongCat 的 thinking 等）。空字典时等于没写这一行。
+        if self.extra_body:
+            payload.update(self.extra_body)
         data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
         request = urllib.request.Request(
             url, data=data, method="POST",
@@ -221,10 +261,21 @@ class LLMClient:
             raise LLMError(f"接口没有返回内容: {raw[:200]}")
 
         message = choices[0].get("message") or {}
+        finish = choices[0].get("finish_reason") or ""
         content = message.get("content")
         if not content:
-            # 推理类模型可能把内容放在 reasoning_content 里
-            content = message.get("reasoning_content") or ""
+            # 推理模型（deepseek-reasoner / LongCat-2.x）把"思考"放 reasoning_content，
+            # 正式答复放 content。content 为空**基本只有一个原因**：max_tokens 被思考吃光。
+            # 此时若把 reasoning_content 当答案返回，用户看到的是模型的**自言自语**
+            # （实测：问"回：聚合"，返回的是"用户只要求回复两个字…我应该直接回复"）。
+            # 所以截断时**报错**，宁可失败也不要冒充答案。
+            reasoning = message.get("reasoning_content") or ""
+            if finish == "length":
+                raise LLMError(
+                    "输出被 max_tokens 截断：推理模型的思考占满了预算，正文为空。"
+                    "请调大 max_tokens，或对支持的服务商关闭思考"
+                    "（LongCat 可传 thinking={\"type\":\"disabled\"}）")
+            content = reasoning
         return (content or "").strip()
 
     # ------------------------------------------------------------ 工具
@@ -266,9 +317,15 @@ class LLMClient:
             504: "网关超时",
         }
         base = hints.get(code, f"HTTP {code}")
-        # 网关类错误里常包着真实的连接失败原因，识别出来给更直接的提示
         low = (detail or "").lower()
-        if any(mark in low for mark in (
+        # 各家把"没钱了"放在不同状态码上：DeepSeek 用 402，LongCat 用 403 且
+        # code=insufficient_quota。只看状态码会把 LongCat 的"额度不足"说成
+        # "无权访问该模型"，用户会跑去查权限而不是去充值 —— 所以按 body 纠正。
+        if code in (402, 403) and ("insufficient_quota" in low or "quota" in low
+                                   or "balance" in low or "额度" in detail):
+            base = "账户额度不足"
+        # 网关类错误里常包着真实的连接失败原因，识别出来给更直接的提示
+        elif any(mark in low for mark in (
                 "connection refused", "积极拒绝", "connect failed", "econnrefused",
                 "no route to host", "timed out", "超时")):
             base = "无法连接到接口地址（连接被拒绝或超时）"
@@ -277,6 +334,8 @@ class LLMClient:
             text += f"：{detail}"
         if code in (401, 402, 403) and self.provider == "deepseek":
             text += "（请到 platform.deepseek.com 检查密钥与余额）"
+        elif code in (401, 402, 403) and self.provider == "longcat":
+            text += "（请到 longcat.chat 开放平台检查密钥与额度）"
         return text
 
     @staticmethod
@@ -300,18 +359,46 @@ class LLMClient:
 def build_client(settings, provider: str = None, api_key: str = None,
                  model: str = None) -> LLMClient:
     """
-    按配置构建客户端（供 SessionManager / AIAgent 使用）
+    按配置构建客户端（供 SessionManager / AIAgent / 离线工具使用）
 
     参数留空时从设置里取当前提供方的配置。
+
+    ⚠ `provider` 与设置里的 `ai_provider` **不一致**时，模型名与接口地址必须取
+    `provider` 自己那份配置（`provider_configs[name]`），**不能**回落到
+    `settings.model` / `settings.api_base` —— 那两个字段只描述"当前提供方"。
+    踩过的坑：显式 `--provider longcat` 却拿着 deepseek 的 model 与 api_base 去
+    请求，得到 404，看上去像"LongCat 没有这个模型"，其实是地址/模型张冠李戴。
     """
     name = (provider or (settings.get("ai_provider") if settings else None)
             or DEFAULT_PROVIDER).lower()
     defaults = provider_defaults(name)
-    keys = (settings.get("provider_keys") if settings else None) or {}
-    return LLMClient(
-        provider=name,
-        api_key=api_key if api_key is not None else (keys.get(name) or
-                                                     (settings.api_key if settings else "")),
-        model=model or (settings.get("model") if settings else "") or defaults["model"],
-        base_url=(settings.get("api_base") if settings else "") or defaults["base_url"],
-    )
+
+    cfg = {}
+    same = True
+    if settings is not None:
+        try:
+            cfg = settings.get_provider_config(name) or {}
+            same = (name == (settings.get("ai_provider") or "").lower())
+        except Exception:
+            cfg, same = {}, True
+
+    if api_key is None:
+        api_key = ""
+        if settings is not None:
+            try:
+                api_key = settings.get_api_key_for(name) or ""
+            except Exception:
+                api_key = ""
+            # 兼容旧配置：只有顶层 api_key 字段（按"当前提供方"解读）
+            if not api_key and same:
+                api_key = settings.get("api_key", "")
+
+    if not model:
+        model = (cfg.get("model")
+                 or ((settings.get("model") if (same and settings) else "") or "")
+                 or defaults["model"])
+    base_url = (cfg.get("base_url")
+                or ((settings.get("api_base") if (same and settings) else "") or "")
+                or defaults["base_url"])
+    return LLMClient(provider=name, api_key=api_key, model=model,
+                     base_url=base_url)

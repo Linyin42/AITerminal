@@ -42,7 +42,7 @@ class NoteDialog(QDialog):
             "建议标题写清「厂商 + 型号 + 主题」，方便以后搜。"
         )
         tip.setWordWrap(True)
-        tip.setStyleSheet("color: #98a1b5;")
+        tip.setStyleSheet("color: #93A0B4;")
         layout.addWidget(tip)
 
         form_group = QGroupBox("资料信息")
@@ -78,7 +78,7 @@ class NoteDialog(QDialog):
         layout.addWidget(content_group, 1)
 
         self.path_label = QLabel("")
-        self.path_label.setStyleSheet("color: #98a1b5; font-size: 11px;")
+        self.path_label.setStyleSheet("color: #93A0B4; font-size: 11px;")
         layout.addWidget(self.path_label)
         self.update_path_hint()
         self.title_input.textChanged.connect(self.update_path_hint)

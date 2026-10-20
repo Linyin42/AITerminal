@@ -1,0 +1,123 @@
+# 终端三色 固定语料（S2 确定性基线输入）
+# 用法（下一步实现）：AITerminal.exe --feed-colors=tests/corpus/terminal_colors.txt --screenshot=<png>
+#   把每行灌进真实 TerminalView（走正常 putRun 路径）→ 导出 runColors() → 基线 = 语料 → 逐 run 颜色
+# 约定：`#CASE <id> | <说明>` 是注释行（不喂给终端），其后紧跟 1..n 行是要喂的原文。
+# 判定口径（现状实现，必须保持等价）：
+#   ① 提示符/命令回显/IP·MAC = 蓝 #78baea
+#   ② 成功/状态 = 绿 #5bbe7d
+#   ③ 接口名 = 琥珀 #e1b562
+#   ④ 其余 = 中性 #f3f5fc
+# 注意：已被设备 ANSI 显式上色的 run 必须原样保留（不参与上面的重判）。
+
+#CASE P1 | 提示符形态（尖括号）
+<H3C>
+
+#CASE P2 | 提示符形态（方括号）
+[SW1]
+
+#CASE P3 | 提示符形态（锐捷）
+Ruijie>
+
+#CASE P4 | 提示符形态（井号）
+Switch#
+
+#CASE P5 | 提示符 + 命令回显（同行）
+<H3C>display version
+
+#CASE P6 | 提示符 + 命令回显（另一家）
+[SW1]interface Vlanif10
+
+#CASE IP1 | IPv4
+<PING 192.168.1.254: 56 data bytes
+
+#CASE IP2 | IPv4 带掩码长度
+ip address 10.0.0.1 24
+
+#CASE IP3 | IPv6
+2001:db8::1 is reachable
+
+#CASE IP4 | MAC（冒号形态）
+MAC: 00:1a:2b:3c:4d:5e
+
+#CASE IP5 | MAC（H3C 横杠形态）
+aaaa-bbbb-cccc
+
+#CASE T1 | 时钟行（必须中性）
+Compiled Nov 21 2022 11:00:00
+
+#CASE T2 | 日期行（必须中性）
+Compiled 2022-11-21 11:00:00
+
+#CASE T3 | reboot 原因行（含时钟，必须中性）
+Last reboot reason: User reboot at 11:00:00
+
+#CASE N1 | 裸数字（内存）
+DRAM:  512M bytes
+
+#CASE N2 | 裸数字（版本号）
+H3C Comware Software, Version 7.1.070, Alpha 7170
+
+#CASE N3 | 裸数字（百分比）
+CPU utilization: 0.00%
+
+#CASE I1 | 接口名 GE
+GE1/0/1                UP    auto    1000M
+
+#CASE I2 | 接口名 XGE
+XGE1/0/49              DOWN  10G
+
+#CASE I3 | 接口名 长形态
+GigabitEthernet1/0/1    UP    full    1000M
+
+#CASE I4 | 接口名 聚合
+Eth-Trunk1             UP    full    20G
+
+#CASE I5 | 接口名 三层
+Vlanif10               UP
+
+#CASE I6 | 接口名 隧道/空口
+Tunnel1                UP
+
+#CASE I7 | 接口名 环回
+LoopBack0              UP
+
+#CASE I8 | 接口名 单口（锐捷风格空格）
+GigabitEthernet 0/1    UP
+
+#CASE S1 | 成功/状态（H3C 登录）
+<H3C>%Oct 2 21:34:34 2026 H3C SHELL/5/SHELL_LOGIN: Console logged in from con0
+
+#CASE S2 | 成功（Done）
+Done
+
+#CASE S3 | 成功（Saved）
+Saved
+
+#CASE S4 | 成功（中文）
+已保存
+
+#CASE M1 | 分页提示（设备原文；不应当错误，也不上三色）
+---- More ----
+
+#CASE E1 | 已在 ANSI 显式上色的 run（必须原样保留）
+# 说明：本行通过转义把设备侧 SGR 颜色带进来，占用三色判定之外
+[1;33mTHIS-IS-DEVICE-COLORED[0m
+
+#CASE E2 | 设备显式上色 + 提示符同行（提示符仍应蓝、设备色段不重判）
+[31mRED-SEG[0m<H3C>display interface brief
+
+#CASE System uptime : 8:8:43:37（正文行；纯数字冒号串不得当 IPv6 => neutral）
+System uptime           : 8:8:43:37
+EXPECT neutral
+
+#CASE System description（真机 show version 首行 => neutral）
+System description      : Ruijie Full Gigabit Security & Intelligence Access Switch (S2928G-E) By Ruijie Networks
+EXPECT neutral
+
+#CASE MAC 点分形（Cisco 风格 => prompt）
+aabb.ccdd.eeff
+EXPECT prompt
+
+#CASE MAC 冒号形（=> prompt）
+aa:bb:cc:dd:ee:ff
+EXPECT prompt

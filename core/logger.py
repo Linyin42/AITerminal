@@ -6,6 +6,7 @@
 """
 import os
 import re
+import sys
 import time
 from datetime import datetime
 
@@ -65,7 +66,11 @@ class SessionLogger:
             self._fh.write(self._header())
             self._fh.flush()
             return True
-        except Exception:
+        except Exception as exc:
+            # 这里以前是静默失败：文件建出来了却一个字没写（0 字节），
+            # 用户以为在记日志、排查的人也拿不到任何线索。必须留痕。
+            print(f"[日志] 打开失败 {self.path!r}: {type(exc).__name__}: {exc}",
+                  file=sys.stderr, flush=True)
             self._fh = None
             self.enabled = False
             return False
@@ -94,8 +99,9 @@ class SessionLogger:
             self._fh.write(text)
             self._fh.flush()
             self.bytes_written += len(text)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[日志] 写入失败 {self.path!r}: {type(exc).__name__}: {exc}",
+                  file=sys.stderr, flush=True)
 
     def mark(self, note: str):
         """写入一条人工标记（如"批量下发开始"）"""

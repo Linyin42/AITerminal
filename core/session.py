@@ -1,6 +1,7 @@
 """
 会话管理 - 管理多个设备连接会话
 """
+import gc
 import time
 import threading
 from typing import Dict, Optional, List, Tuple
@@ -10,6 +11,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from .ssh_connector import SSHConnector
 from .telnet_connector import TelnetConnector
 from .serial_connector import SerialConnector
+from .ensp_connector import EnspProConnector
 from .ai_agent import AIAgent
 from .logger import SessionLogger
 from .safety import is_config_command
@@ -44,6 +46,8 @@ class SessionInfo:
         self.logger = None            # 会话日志写入器
         self.snapshots = []           # 配置快照 [(标签, 文本, 时间戳)]
         self.vendor = "unknown"       # 识别出的设备厂商
+        self.model = ""               # 从 version 回显里认出的型号
+        self.os_version = ""          # 该型号的系统版本
         self.capture_buffer = None    # 采集模式下的输出暂存区
         self.created_at = time.time()
         self.last_activity = time.time()
@@ -132,6 +136,10 @@ class SessionManager(QObject):
     # 信号
     session_created = pyqtSignal(int, str)      # session_id, name
     session_closed = pyqtSignal(int)             # session_id
+    # 设备/网络掉线（不是用户点关闭）：session_id, 可读原因。
+    # 连接器早就发出了 connection_lost，但界面一个地方都没接 —— 掉线时屏幕上
+    # 什么都不显示，用户只会以为程序卡住了（2026-10-19 用户反馈"掉线要显示出来"）。
+    connection_lost = pyqtSignal(int, str)
     session_activated = pyqtSignal(int)          # session_id
     session_error = pyqtSignal(int, str)         # session_id, error
     ai_output = pyqtSignal(int, str)             # session_id, text   AI 面板消息
@@ -143,6 +151,9 @@ class SessionManager(QObject):
     def __init__(self):
         super().__init__()
         self._sessions: Dict[int, SessionInfo] = {}
+        # 已经报过掉线的会话（连接器可能重复发 connection_lost：读线程和写线程
+        # 各自发现一次），每个会话只提示一次，重连成功后清掉
+        self._lost_sessions: set = set()
         self._next_id = 1
         self._active_session_id: Optional[int] = None
         self._ai_api_key = ""
@@ -153,6 +164,7 @@ class SessionManager(QObject):
         self.settings = Settings() if Settings else None
         self._search_client = None
         self._knowledge = None
+        self._knowledge_lock = threading.Lock()   # 见 _ensure_knowledge：防重复建库
 
     def _log_dir(self):
         return self.settings.log_dir if self.settings else None
@@ -163,11 +175,33 @@ class SessionManager(QObject):
         if not self.settings:
             return None
         if self._knowledge is None:
-            self._knowledge = KnowledgeBase(
-                root_dir=self.settings.knowledge_dir,
-                enabled=self.settings.knowledge_enabled,
-            )
+            with self._knowledge_lock:
+                # 双检：两个线程同时"首次用到"资料库（例如控制通道的后台预热线程
+                # 与一个正在来的检索请求）会各建一份 KnowledgeBase —— 索引 676 MB，
+                # 读成 Python 对象后常驻好几 GB，两份就把内存顶到 7.9 GB（实测）。
+                # 这里保证只建一份，其余线程等它建好。
+                if self._knowledge is None:
+                    self._knowledge = KnowledgeBase(
+                        root_dir=self.settings.knowledge_dir,
+                        enabled=self.settings.knowledge_enabled,
+                    )
         return self._knowledge
+
+    def release_knowledge(self) -> float:
+        """丢掉资料库实例与它的内存索引，返回估算释放的 MB。
+
+        用途：用户要跑模拟器等吃内存的程序时，把几 GB 的资料库索引腾出来。
+        索引仍在磁盘上（`.index.json`），下次检索会自动重新加载。
+        """
+        kb, self._knowledge = self._knowledge, None
+        freed = 0.0
+        if kb is not None:
+            try:
+                freed = float(kb.release())
+            except Exception:                       # noqa: BLE001
+                freed = 0.0
+        gc.collect()
+        return freed
 
     @property
     def knowledge_base(self):
@@ -254,13 +288,14 @@ class SessionManager(QObject):
 
         参数:
             name: 会话名称
-            protocol: 协议类型 (SSH/Telnet/Serial)
+            protocol: 协议类型 (SSH/Telnet/Serial/eNSP)
             host: 主机地址
             username: 用户名
             password: 密码
             port: 端口号
             serial_port: 串口号
             baudrate: 波特率
+            kwargs 里 eNSP 专用: sandbox_id / node_id / cookie
         返回:
             会话ID
         """
@@ -309,6 +344,28 @@ class SessionManager(QObject):
             success = session.connector.connect(
                 port=serial_port, baudrate=baudrate, **serial_opts
             )
+            if not success:
+                # 把**具体原因**留给上层：串口"被占用 / 不存在 / 驱动异常"的文案
+                # 只有 connector 知道（_explain_error）；引擎原来只能报一句通用失败。
+                self.last_connect_error = getattr(session.connector, "last_error", "") or ""
+        elif protocol == "eNSP":
+            # eNSP Pro 仿真平台的设备 Console。
+            # 设备没有 TCP 端点，全部经 HTTP + STOMP 中转，所以单独一条协议。
+            ensp_opts = {
+                'sandbox_id': int(kwargs.get('sandbox_id') or 0),
+                'node_id': int(kwargs.get('node_id') or 0),
+                'cookie': kwargs.get('cookie'),
+            }
+            session.config.update(ensp_opts)
+            session.connector = EnspProConnector()
+            # port 默认是 22（SSH 用），但 22 对 eNSP 毫无意义 ——
+            # 不显式传 port 时若照搬 22，连接器会去连 22 端口，
+            # 表现为一路重试后 create_session 返回 -1（探针固定 30~45s 失败就是这个）。
+            # 所以这里把"未指定"（0/None）和 SSH 默认值 22 都当作未指定，落到 8443。
+            success = session.connector.connect(
+                host=host, port=(8443 if port in (None, 0, 22) else int(port)),
+                username=username, password=password, **ensp_opts
+            )
         else:
             self.session_error.emit(session_id, f"不支持的协议: {protocol}")
             return -1
@@ -335,6 +392,11 @@ class SessionManager(QObject):
             session.connector.error_occurred.connect(
                 lambda msg, sid=session_id: self.session_error.emit(sid, msg)
             )
+            # 掉线：连上之后设备关闭会话/网线断开/串口掉电都会走到这里。
+            # 界面必须看得见（否则屏幕就此静止，用户以为程序死了）。
+            session.connector.connection_lost.connect(
+                lambda sid=session_id: self._on_connection_lost(sid)
+            )
             # 串口自动重连的进度提示
             if hasattr(session.connector, 'reconnecting'):
                 session.connector.reconnecting.connect(
@@ -342,8 +404,7 @@ class SessionManager(QObject):
                         self.connection_info.emit(sid, f"串口重连中（第 {n} 次尝试）…")
                 )
                 session.connector.reconnected.connect(
-                    lambda sid=session_id:
-                        self.connection_info.emit(sid, "串口已自动重连成功")
+                    lambda sid=session_id: self._on_reconnected(sid)
                 )
                 session.connector.reconnect_failed.connect(
                     lambda msg, sid=session_id: self.session_error.emit(sid, msg)
@@ -353,6 +414,38 @@ class SessionManager(QObject):
         else:
             self.session_error.emit(session_id, "连接失败")
             return -1
+
+    def _on_reconnected(self, session_id: int) -> None:
+        """串口自动重连成功：清掉掉线标记，界面才肯再报下一次掉线"""
+        self._lost_sessions.discard(session_id)
+        self.connection_info.emit(session_id, "串口已自动重连成功")
+
+    def _on_connection_lost(self, session_id: int) -> None:
+        """连接器报掉线 → 去重后带上可读原因报给界面
+
+        每个会话只报一次：串口/SSH/Telnet 的读线程与写线程可能各自发现断链，
+        connection_lost 会连发两次；用户不需要看两遍同样的"断开了"。重连成功或
+        重新建会话时清掉标记（见 reconnected / create_session）。
+        """
+        if session_id in self._lost_sessions:
+            return
+        self._lost_sessions.add(session_id)
+        session = self._sessions.get(session_id)
+        protocol = getattr(session, "protocol", "") or ""
+        config = getattr(session, "config", None) or {}
+        if protocol == "Serial":
+            reason = "串口断开（设备掉电、线被拔或串口被系统回收）"
+            if config.get('auto_reconnect', True):
+                reason += "；正在自动重连"
+        elif protocol == "Telnet":
+            reason = "设备关闭了 Telnet 会话或网络中断（常见于空闲超时被踢）"
+        elif protocol == "SSH":
+            reason = "SSH 连接被设备关闭或网络中断"
+        elif protocol == "eNSP":
+            reason = "eNSP 仿真设备连接中断"
+        else:
+            reason = "连接已断开"
+        self.connection_lost.emit(session_id, reason)
 
     def close_session(self, session_id: int):
         """关闭会话"""
@@ -583,7 +676,8 @@ class SessionManager(QObject):
             for cmd in blocked:
                 self.ai_output.emit(session_id, f"[安全拦截] {cmd}（危险命令，需人工确认）")
 
-            # 安全闸门：配置类命令一律不自动下发，转入待执行队列等人工确认
+            # 安全闸门：配置类命令一律不自动下发，只打到终端里等人工确认
+            # （「待执行」队列已随界面精简一起删掉，这里不再入队）
             config_commands = [c for c in commands if is_config_command(c)]
             if auto_execute and config_commands:
                 for cmd in commands:
@@ -591,8 +685,8 @@ class SessionManager(QObject):
                 self.ai_output.emit(
                     session_id,
                     f"[安全] 检测到 {len(config_commands)} 条配置类命令，"
-                    "已放入「待执行」队列等待你确认，自动模式已暂停。\n"
-                    "　　　配置命令必须人工核对后再下发（这是程序默认行为）。"
+                    "已打到终端里（[AI] 开头的行）等你核对，自动模式已暂停。\n"
+                    "　　　配置命令必须人工核对后再手动下发（这是程序默认行为）。"
                 )
                 return commands, blocked, "queued"
 

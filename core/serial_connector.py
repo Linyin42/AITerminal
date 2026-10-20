@@ -74,6 +74,13 @@ class SerialConnector(BaseConnector):
     #: Console 默认用 CR 结尾（多数网络设备只认 0x0D）
     line_ending = '\r'
 
+    #: 串口读「帧内合并」窗口。9600 波特 ≈ 1.04 ms/字符，而 _read_loop 5 ms 轮询一次，
+    #: 一个 7 字符的提示符（Ruijie> ≈ 7.3 ms）会被切成 2 帧。下游按「半截提示符」判色时，
+    #: 第一段（不含 \w+[>#]）会被判成正文色而涂白、且不会回刷 —— 这就是"提示符有时候变白"
+    #: （2026-10-04 定案，逐帧证据见 %TEMP%\term-trace.log）。这里把同一帧的字节攒齐再上屏。
+    _COALESCE_SILENCE = 0.015   # 连续静默这么久 → 认为这一帧发完了
+    _COALESCE_MAX = 0.045       # 硬上限，避免长输出被一直攒着不放
+
     def __init__(self):
         super().__init__()
         self.ser: Optional[serial.Serial] = None
@@ -86,6 +93,9 @@ class SerialConnector(BaseConnector):
         self._port = ""
         self._params: dict = {}
         self._char_delay = 0.0
+        #: 最近一次打开失败的人话版原因（串口被占用 / 不存在 / 驱动异常各不相同）。
+        #: 引擎在 create_session 返回 -1 时读它，作为 session.state 的 detail。
+        self.last_error = ""
 
     # ------------------------------------------------------------ 连接
     def connect(self, port: str, baudrate: int = 9600,
@@ -169,10 +179,14 @@ class SerialConnector(BaseConnector):
             return True
 
         except serial.SerialException as e:
-            self.error_occurred.emit(self._explain_error(e))
+            # 记下"人话版"原因：引擎要拿它当 session.state 的 detail
+            # （被占用 / 不存在 / 驱动异常要给**不同文案**，不能只报一句通用失败）
+            self.last_error = self._explain_error(e)
+            self.error_occurred.emit(self.last_error)
             return False
         except Exception as e:
-            self.error_occurred.emit(f"串口打开失败: {e}")
+            self.last_error = f"串口打开失败: {e}"
+            self.error_occurred.emit(self.last_error)
             return False
 
     @staticmethod
@@ -198,6 +212,31 @@ class SerialConnector(BaseConnector):
         )
         self._read_thread.start()
 
+    def _read_chunk(self, first: int) -> bytes:
+        """读一次串口，并把同一「帧」内后续到达的字节一并攒上。
+
+        为什么要攒：见 _COALESCE_SILENCE 的注释。攒齐后再交给上层解码，
+        半截提示符就不会单独成为一个 run（也就不会被误判成正文色）。
+
+        返回合并后的原始字节（可能为空）。
+        """
+        data = self.ser.read(first)
+        t_start = time.monotonic()
+        t_last = t_start
+        while True:
+            now = time.monotonic()
+            if now - t_start >= self._COALESCE_MAX:
+                break                       # 硬上限：长输出不会被一直攒着
+            more = self.ser.in_waiting
+            if more:
+                data += self.ser.read(more)
+                t_last = now
+            elif now - t_last >= self._COALESCE_SILENCE:
+                break                       # 静默够了 → 这一帧发完了
+            else:
+                time.sleep(0.002)           # 2ms 细粒度轮询，比 5ms 更不容易漏帧尾
+        return data
+
     def _read_loop(self):
         """后台读取串口输出；端口异常时触发自动重连"""
         while self._running:
@@ -206,14 +245,15 @@ class SerialConnector(BaseConnector):
                     raise serial.SerialException("端口已关闭")
                 waiting = self.ser.in_waiting
                 if waiting:
-                    data = self.ser.read(waiting).decode('utf-8', errors='replace')
-                    if data:
+                    text = self._read_chunk(waiting).decode('utf-8', errors='replace')
+                    if text:
                         with self._lock:
-                            self._buffer += data
-                        self.output_received.emit(data)
-                        self._notify_output(data)
+                            self._buffer += text
+                        self.output_received.emit(text)
+                        self._notify_output(text)
                 else:
-                    time.sleep(0.02)
+                    # 5ms 轮询：设备的每个字节都会很快被取走，回显更跟手
+                    time.sleep(0.005)
             except Exception as e:
                 # 拔线 / 设备重启 / 端口被系统回收都会走到这里
                 if self._running:
@@ -281,11 +321,15 @@ class SerialConnector(BaseConnector):
         self._write(data)
 
     def send_raw(self, data: str):
-        """发送原始数据（Ctrl+C、Tab、Enter 等），不追加行结束符"""
-        if self.ser and self.ser.is_open and self._connected:
-            self._write(data)
+        """发送原始数据（Ctrl+C、Tab、Enter、逐字符输入等），不追加行结束符
 
-    def _write(self, data: str):
+        交互输入不做额外等待：逐字符实时下发后，若每次按键都阻塞 50ms，
+        打字会明显发卡（UI 线程被拖住），因此这里跳过稳定延时。
+        """
+        if self.ser and self.ser.is_open and self._connected:
+            self._write(data, settle=False)
+
+    def _write(self, data: str, settle: bool = True):
         payload = data.encode('utf-8', errors='replace')
         try:
             if self._char_delay > 0:
@@ -298,7 +342,8 @@ class SerialConnector(BaseConnector):
         except Exception as e:
             self._on_serial_error(e)
             return
-        time.sleep(0.05)
+        if settle:
+            time.sleep(0.05)
 
     def send_break(self, duration: float = 0.25) -> bool:
         """发送 Break 信号（打断设备启动，进 BootROM/ROMMON）"""
@@ -453,3 +498,41 @@ class SerialConnector(BaseConnector):
     def list_ports():
         """列出本机可用串口号"""
         return [p["device"] for p in SerialConnector.list_ports_detailed()]
+
+    #: 判定"这是 USB 转串口"的描述关键词。用途 = 自动选口时 USB 优先：
+    #: 主板内置 COM1/COM2 基本不是你要连的交换机，USB 转接线才是。
+    USB_HINTS = ("usb", "ch340", "ch341", "cp210", "ftdi", "ft232", "ft2232",
+                 "prolific", "pl2303", "silicon labs", "silabs", "uart bridge")
+
+    @staticmethod
+    def classify_ports():
+        """枚举串口并**确定性分类**（零 AI）：是否 USB 转串口 + 给人看的标签。
+
+        返回 [{"device","description","hwid","manufacturer","vid_pid","is_usb","label"}]，
+        界面直接拿 label 显示 `COM5 · USB-SERIAL CH340`。
+        """
+        out = []
+        for item in SerialConnector.list_ports_detailed():
+            desc = item.get("description", "") or ""
+            hwid = item.get("hwid", "") or ""
+            manu = item.get("manufacturer", "") or ""
+            blob = (" ".join((desc, hwid, manu))).lower()
+            vid_pid = ""
+            low = hwid.lower()
+            if "vid:pid=" in low:
+                vid_pid = low.split("vid:pid=", 1)[1].split()[0].upper()
+            is_usb = ("vid:pid=" in low
+                      or any(h in blob for h in SerialConnector.USB_HINTS))
+            label = item.get("device", "")
+            # pyserial 的描述经常是 "USB Serial Port (COM5)"，与口名重复 ——
+            # 去掉尾部的 "(COM5)"，界面读起来就是 "COM5 · USB Serial Port"
+            tail = "(%s)" % item.get("device", "")
+            if desc.endswith(tail):
+                desc = desc[:-len(tail)].strip()
+            if desc:
+                label = "%s · %s" % (label, desc)
+            row = dict(item)
+            row.update({"vid_pid": vid_pid, "is_usb": bool(is_usb), "label": label})
+            out.append(row)
+        return out
+

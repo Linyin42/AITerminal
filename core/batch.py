@@ -196,6 +196,7 @@ class CommandWaiter:
 #: 用错了设备会回 % Unrecognized command，分屏照样在，长输出就会卡在 ---- More ----。
 PAGING_OFF_COMMANDS = {
     "cisco": ("terminal length 0",),
+    "ruijie": ("terminal length 0",),          # 锐捷 RGOS 与思科同款
     "huawei": ("screen-length 0 temporary", "screen-length disable"),
     "h3c": ("screen-length disable", "screen-length 0 temporary"),
     "unknown": ("screen-length disable", "screen-length 0 temporary",

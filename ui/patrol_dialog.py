@@ -21,7 +21,9 @@ from PyQt6.QtCore import Qt
 from core.patrol import PatrolRunner, export_patrol_excel, export_patrol_csv, STATUS_TEXT
 from core.safety import has_config_command
 from ui.command_confirm import ConfigConfirmDialog
+from ui.device_edit_dialog import DeviceEditDialog
 from config.templates import COMMAND_TEMPLATES, template_commands
+from config.presets import get_patrol_commands_for
 from config.settings import Settings
 
 DEFAULT_COMMANDS = """display version
@@ -63,8 +65,8 @@ class PatrolDialog(QDialog):
         device_group = QGroupBox("巡检设备（勾选要巡检的设备）")
         device_layout = QVBoxLayout()
 
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["选择", "名称", "协议", "地址", "来源"])
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(["选择", "名称", "协议", "地址", "密码", "来源"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
@@ -72,11 +74,23 @@ class PatrolDialog(QDialog):
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        for column in (2, 3, 4):
+        for column in (2, 3, 4, 5):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        # 双击一行 = 编辑这台设备（填 IP/账号/密码）
+        self.table.cellDoubleClicked.connect(lambda _row, _col: self.edit_selected())
         device_layout.addWidget(self.table)
 
         row = QHBoxLayout()
+        btn_manual = QPushButton("手动添加设备…")
+        btn_manual.setToolTip("自己填 IP、协议、账号、密码（巡检一台还没连过的设备）")
+        btn_manual.clicked.connect(self.add_manual)
+        row.addWidget(btn_manual)
+
+        btn_edit = QPushButton("编辑选中…")
+        btn_edit.setToolTip("修改选中设备的 IP/协议/账号/密码（也可以双击那一行）")
+        btn_edit.clicked.connect(self.edit_selected)
+        row.addWidget(btn_edit)
+
         btn_from_sessions = QPushButton("从当前会话添加")
         btn_from_sessions.setToolTip("把界面上已打开的会话加入巡检列表")
         btn_from_sessions.clicked.connect(self.add_from_sessions)
@@ -105,9 +119,9 @@ class PatrolDialog(QDialog):
         row.addStretch()
         device_layout.addLayout(row)
 
-        self.device_hint = QLabel("提示：SSH/Telnet 设备需要用户名密码，"
-                                  "从「当前会话添加」会自动带上。")
-        self.device_hint.setStyleSheet("color: #98a1b5; font-size: 11px;")
+        self.device_hint = QLabel("提示：SSH/Telnet 设备需要用户名密码 ——"
+                                  "可以「手动添加设备」自己填，也可以「从当前会话添加」自动带上。")
+        self.device_hint.setStyleSheet("color: #93A0B4; font-size: 11px;")
         device_layout.addWidget(self.device_hint)
 
         device_group.setLayout(device_layout)
@@ -127,6 +141,11 @@ class PatrolDialog(QDialog):
         self.template_combo = QComboBox()
         self.template_combo.addItems(list(COMMAND_TEMPLATES.keys()))
         cmd_row.addWidget(self.template_combo, 1)
+
+        btn_vendor = QPushButton("按厂家自动")
+        btn_vendor.setToolTip("按勾选设备的厂家（华为/新华三/锐捷/思科）自动套用只读巡检命令")
+        btn_vendor.clicked.connect(self.apply_vendor_template)
+        cmd_row.addWidget(btn_vendor)
 
         btn_load_template = QPushButton("载入")
         btn_load_template.clicked.connect(self.load_template)
@@ -198,14 +217,14 @@ class PatrolDialog(QDialog):
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumHeight(150)
-        self.log_view.setStyleSheet("background-color: #171a24; color: #e6e9f2; "
+        self.log_view.setStyleSheet("background-color: #151A23; color: #E6EAF2; "
                                     "font-family: Consolas, monospace; font-size: 11px;")
         layout.addWidget(self.log_view)
 
         # ---------------- 导出
         export_row = QHBoxLayout()
         self.summary_label = QLabel("尚未执行巡检")
-        self.summary_label.setStyleSheet("color: #98a1b5;")
+        self.summary_label.setStyleSheet("color: #93A0B4;")
         export_row.addWidget(self.summary_label, 1)
 
         self.btn_excel = QPushButton("导出 Excel")
@@ -236,8 +255,18 @@ class PatrolDialog(QDialog):
         if saved_commands:
             self.command_edit.setPlainText("\n".join(saved_commands))
 
-        # 默认把当前会话全部加入
+        # 默认把当前会话全部加入（会话里带着密码，优先用它们）
         self.add_from_sessions(select_all=True)
+
+        # 再补上次保存过但当前没打开会话的设备（不带密码，表里显示"未填"）
+        for device in self.settings.get_patrol_devices() or []:
+            item = dict(device)
+            key = (item.get('protocol'), item.get('host'),
+                   item.get('serial_port'), item.get('username'))
+            if key in self.existing_keys():
+                continue
+            self.add_device_row(item, checked=True,
+                                source=item.get('source') or "上次保存")
 
     def save_settings(self):
         self.settings.set("patrol_concurrency", self.concurrency_spin.value())
@@ -245,7 +274,22 @@ class PatrolDialog(QDialog):
         self.settings.set("patrol_prompt_timeout", self.cmd_timeout_spin.value())
         self.settings.set("batch_auto_page", self.chk_auto_page.isChecked())
         self.settings.set_patrol_commands(self.get_commands())
+        # 设备列表也存下来，下次打开不用重填 IP/账号。
+        # 密码一律不写：settings.json 是明文，落盘等于把设备口令摊在硬盘上。
+        self.settings.set_patrol_devices([
+            {key: value for key, value in device.items() if key != 'password'}
+            for device in self.all_devices()
+        ])
         self.settings.save()
+
+    def all_devices(self) -> list:
+        """列表里的全部设备（不区分勾选状态）"""
+        devices = []
+        for row in range(self.table.rowCount()):
+            device = self.table.item(row, 1).data(Qt.ItemDataRole.UserRole)
+            if device:
+                devices.append(dict(device))
+        return devices
 
     # ------------------------------------------------------------ 设备
     def add_device_row(self, device: dict, checked: bool = True, source: str = ""):
@@ -264,7 +308,80 @@ class PatrolDialog(QDialog):
         self.table.setItem(row, 2, QTableWidgetItem(device.get('protocol', '')))
         self.table.setItem(row, 3, QTableWidgetItem(
             device.get('host') or device.get('serial_port', '')))
-        self.table.setItem(row, 4, QTableWidgetItem(source or device.get('source', '')))
+        self.set_password_cell(row, device)
+        self.table.setItem(row, 5, QTableWidgetItem(source or device.get('source', '')))
+
+    def set_password_cell(self, row: int, device: dict):
+        """第 5 列：密码有没有。用户最怕"密码没带上还不说"，直接摆在表里"""
+        has_password = bool(device.get('password'))
+        item = QTableWidgetItem("已填" if has_password else "未填")
+        item.setForeground(Qt.GlobalColor.darkGreen if has_password
+                           else Qt.GlobalColor.darkYellow)
+        if not has_password:
+            item.setToolTip("这台设备没带密码，巡检会登录失败；双击这一行填写")
+        self.table.setItem(row, 4, item)
+
+    def add_manual(self):
+        """手动添加一台设备（填 IP/协议/账号/密码）"""
+        dialog = DeviceEditDialog(self)
+        if not dialog.exec():
+            return
+        device = dialog.get_device()
+        key = (device.get('protocol'), device.get('host'), None,
+               device.get('username'))
+        if key in self.existing_keys():
+            answer = QMessageBox.question(
+                self, "设备已在列表里",
+                f"{device.get('host')} 已经在巡检列表里了，用新填的参数覆盖它吗？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes)
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            self.replace_device(key, device)
+            return
+        self.add_device_row(device, checked=True, source="手动填写")
+        self.log_view.appendPlainText(
+            f"已手动添加设备 {device.get('host')}（{device.get('protocol')}）")
+
+    def replace_device(self, key: tuple, device: dict):
+        """按 (协议, 地址, 串口, 用户名) 找到旧行并用新参数替换"""
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 1)
+            old = item.data(Qt.ItemDataRole.UserRole) or {}
+            old_key = (old.get('protocol'), old.get('host'),
+                       old.get('serial_port'), old.get('username'))
+            if old_key != key:
+                continue
+            item.setText(device.get('name') or device.get('host') or '未命名')
+            item.setData(Qt.ItemDataRole.UserRole, device)
+            self.table.item(row, 2).setText(device.get('protocol', ''))
+            self.table.item(row, 3).setText(device.get('host', ''))
+            self.set_password_cell(row, device)
+            self.log_view.appendPlainText(
+                f"已更新设备 {device.get('host')}（{device.get('protocol')}）")
+            return
+
+    def selected_row(self) -> int:
+        """当前选中的行号（没选返回 -1）"""
+        rows = sorted({index.row() for index in self.table.selectedIndexes()})
+        return rows[0] if rows else -1
+
+    def edit_selected(self):
+        """编辑选中的那台设备"""
+        row = self.selected_row()
+        if row < 0:
+            QMessageBox.information(self, "先选一台设备",
+                                    "请在列表里点一下要编辑的设备（双击也能编辑）。")
+            return
+        old = self.table.item(row, 1).data(Qt.ItemDataRole.UserRole) or {}
+        dialog = DeviceEditDialog(self, device=old)
+        if not dialog.exec():
+            return
+        device = dialog.get_device()
+        checked = self.table.item(row, 0).checkState() == Qt.CheckState.Checked
+        self.table.removeRow(row)
+        self.add_device_row(device, checked=checked, source="手动填写")
+        self.log_view.appendPlainText(f"已修改设备 {device.get('host')}")
 
     def existing_keys(self):
         """已加入列表的设备标识，用于去重"""
@@ -339,6 +456,40 @@ class PatrolDialog(QDialog):
         return devices
 
     # ------------------------------------------------------------ 命令
+    def showEvent(self, event):        # noqa: N802 —— Qt 的命名
+        """打开就按厂家自动套一次巡检命令（认不出厂家的设备不猜）"""
+        super().showEvent(event)
+        if not getattr(self, "_vendor_applied", False):
+            self._vendor_applied = True
+            self.apply_vendor_template(silent=True)
+
+    def apply_vendor_template(self, silent: bool = False) -> str:
+        """按设备厂家自动套用巡检命令（只读命令，**绝不**下配置命令）
+
+        用户 2026-10-17："（巡检要）自动的调用相关的模板"。厂家来自连接后识别出的
+        session.vendor / 设备记录里的 vendor；认不出就不猜，免得把 H3C 的 display
+        下发到思科设备上。
+        """
+        devices = self.checked_devices() or [dict(x) for x in self.candidates]
+        vendors = []
+        for device in devices:
+            vendor = str(device.get('vendor') or '').lower().strip()
+            if vendor and vendor != 'unknown' and vendor not in vendors:
+                vendors.append(vendor)
+        commands = get_patrol_commands_for(vendors)
+        if not commands:
+            if not silent:
+                QMessageBox.information(
+                    self, "没有厂家信息",
+                    "这些设备还没有识别出厂家。\n\n"
+                    "连一次设备（连上后会自动识别厂家）再打开巡检，"
+                    "或者用下面的模板手动载入命令。")
+            return ""
+        self.command_edit.setPlainText("\n".join(commands))
+        self.log_view.appendPlainText(
+            f"已按厂家（{'、'.join(vendors)}）载入 {len(commands)} 条只读巡检命令")
+        return "\n".join(commands)
+
     def load_template(self):
         """从模板载入巡检命令"""
         name = self.template_combo.currentText()
@@ -380,6 +531,19 @@ class PatrolDialog(QDialog):
                 "以下设备没有用户名，可能连接失败：\n  " + "\n  ".join(missing[:8])
                 + "\n\n仍然继续？"
             )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        # 没密码比没用户名更致命：连都连不上，日志里只有一句"连接失败"，
+        # 用户会以为巡检坏了（2026-10-19 反馈）。开跑前先摊开说清楚。
+        no_password = [d.get('name') or d.get('host', '') for d in devices
+                       if d.get('protocol') in ('SSH', 'Telnet') and not d.get('password')]
+        if no_password:
+            answer = QMessageBox.question(
+                self, "有设备没填密码",
+                "以下设备没有密码，巡检会登录失败：\n  " + "\n  ".join(no_password[:8])
+                + "\n\n点「手动添加设备…」或双击那一行补上密码再跑。\n仍然继续吗？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
             if answer != QMessageBox.StandardButton.Yes:
                 return
 

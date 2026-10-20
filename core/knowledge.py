@@ -18,6 +18,8 @@
 不需要 python-docx / openpyxl。
 """
 import csv
+import ctypes
+import gc
 import html as html_mod
 import io
 import json
@@ -32,6 +34,56 @@ from collections import Counter
 from typing import Dict, List, Optional
 
 DEFAULT_KNOWLEDGE_DIR = os.path.join(os.path.expanduser("~"), ".aiterminal", "knowledge")
+
+
+class _PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+    """`GetProcessMemoryInfo` 的入参结构（字段顺序/类型照 Win32 定义）"""
+    _fields_ = [("cb", ctypes.c_ulong), ("PageFaultCount", ctypes.c_ulong),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t)]
+
+
+def process_rss_mb() -> float:
+    """当前进程常驻内存（MB）。拿不到就返回 0（调用方自己退回估算值）。
+
+    ⚠ 两个 ctypes 坑都在这里（2026-10-17 实测踩过，表现是"RSS 恒为 0"）：
+      1. `GetCurrentProcess()` 的 restype 要显式声明 c_void_p，否则返回的伪句柄
+         -1（0xFFFFFFFFFFFFFFFF）会被当成 c_int 截断；
+      2. `GetProcessMemoryInfo` 的 argtypes 也要显式声明，否则 ctypes 按 c_int 传参，
+         那个 64 位句柄直接 OverflowError —— 被下面的 except 吞掉就成了"量尺坏了
+         但看起来像内存没涨"，比报错更坑。
+    """
+    import sys as _sys
+    if not _sys.platform.startswith("win"):
+        # Linux / macOS 走这条路：/proc/self/statm 第 2 列是常驻页数，
+        # 比 resource.getrusage().ru_maxrss（峰值）更贴近"现在占多少"。
+        try:
+            import os as _os
+            with open("/proc/self/statm", encoding="ascii") as fh:
+                pages = int(fh.read().split()[1])
+            return pages * _os.sysconf("SC_PAGE_SIZE") / 1048576.0
+        except Exception:                           # noqa: BLE001
+            return 0.0
+    try:
+        k32 = ctypes.windll.kernel32
+        k32.GetCurrentProcess.restype = ctypes.c_void_p
+        fn = ctypes.windll.psapi.GetProcessMemoryInfo
+        fn.argtypes = [ctypes.c_void_p, ctypes.POINTER(_PROCESS_MEMORY_COUNTERS),
+                       ctypes.c_ulong]
+        fn.restype = ctypes.c_int
+        pmc = _PROCESS_MEMORY_COUNTERS()
+        pmc.cb = ctypes.sizeof(_PROCESS_MEMORY_COUNTERS)
+        if not fn(k32.GetCurrentProcess(), ctypes.byref(pmc), pmc.cb):
+            return 0.0
+        return pmc.WorkingSetSize / 1048576.0
+    except Exception:                               # noqa: BLE001
+        return 0.0
 INDEX_FILENAME = ".index.json"
 INDEX_VERSION = 1
 
@@ -41,7 +93,7 @@ TEXT_EXTENSIONS = {
     ".yaml", ".yml", ".csv", ".tsv", ".xml", ".rst", ".text",
 }
 # 需要解析的扩展名
-PARSE_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".pptx", ".html", ".htm", ".zip"}
+PARSE_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".pptx", ".html", ".htm", ".zip", ".hdx"}
 # 老版 Office 二进制格式，无法用标准库解析
 UNSUPPORTED_EXTENSIONS = {
     ".doc": "老版 .doc 无法直接解析，请另存为 .docx 或导出 PDF",
@@ -52,6 +104,10 @@ UNSUPPORTED_EXTENSIONS = {
 }
 
 SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | PARSE_EXTENSIONS
+
+# 经验总结分类：AI 在后台把每轮交互的"成功点 / 踩坑点"写进这里，
+# 之后提到同类需求时可以快速匹配出来
+EXPERIENCE_CATEGORY = "经验总结"
 
 # 单个文档最多保留的字符数（防止一本几百页的手册把索引撑爆）
 MAX_DOC_CHARS = 400_000
@@ -85,6 +141,93 @@ def extract_html(raw: str) -> str:
     text = re.sub(r'<[^>]+>', '', text)
     text = html_mod.unescape(text)
     return _tidy(text)
+
+
+#: hdx 里的 html 声明 `charset=gb2312`，实际是 GB18030。
+#: ⚠ 用 utf-8 读**不会报错**，只会静默产出乱码 —— 所以解码顺序不能想当然。
+_HDX_ENC = ("gb18030", "utf-8", "gbk")
+
+
+def _hdx_decode(raw: bytes) -> str:
+    for enc in _HDX_ENC:
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("gb18030", errors="replace")
+
+
+def _hdx_bookmark_order(zf: "zipfile.ZipFile") -> List[str]:
+    """从 `.hhc` 书签里取**厂商自己的目录顺序**（拿不到就返回空，调用方按文件名兜底）"""
+    hhc = [n for n in zf.namelist() if n.lower().endswith(".hhc")]
+    if not hhc:
+        return []
+    try:
+        raw = _hdx_decode(zf.read(hhc[0]))
+    except Exception:
+        return []
+    order = []
+    for body in re.findall(r'<OBJECT[^>]*text/sitemap[^>]*>(.*?)</OBJECT>', raw, re.S | re.I):
+        m = re.search(r'name\s*=\s*"Local"\s+value\s*=\s*"([^"]*)"', body, re.I)
+        if not m:
+            continue
+        loc = html_mod.unescape(m.group(1)).split("#")[0].strip().replace("\\", "/")
+        if not loc:
+            continue
+        if not loc.lower().startswith("resources/"):
+            loc = "resources/" + loc
+        order.append(loc)
+    return order
+
+
+def iter_hdx_pages(path: str):
+    """逐页产出 hdx 正文（按 `.hhc` 书签顺序，跳过目录/索引页）。
+
+    拆成生成器是为了让调用方**自己决定怎么拼**：
+    `extract_hdx()` 拼成一个有上限的长文本；`_import_hdx()` 则按大小分片落盘。
+    """
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        htmls = [n for n in names if n.lower().endswith((".html", ".htm"))]
+        by_lower = {n.lower(): n for n in htmls}
+        seq, seen = [], set()
+        for loc in _hdx_bookmark_order(zf):
+            key = loc.lower()
+            if key in by_lower and key not in seen:
+                seen.add(key)
+                seq.append(by_lower[key])
+        for n in htmls:                       # 书签没覆盖到的页，补在后面
+            if n.lower() not in seen:
+                seen.add(n.lower())
+                seq.append(n)
+
+        for name in seq:
+            try:
+                raw = _hdx_decode(zf.read(name))
+            except Exception:
+                continue
+            text = extract_html(raw)
+            if len(text) < 120:               # 目录/索引/导航页：没有实质正文
+                continue
+            yield text
+
+
+def extract_hdx(path: str, max_chars: int = MAX_DOC_CHARS) -> str:
+    """华为 `.hdx`（eDoc 产品文档包）→ 纯文本（有上限）。
+
+    `.hdx` 就是个 ZIP：`profile.xml` + `resources/**/*.html`（正文）+ `.hhc`（书签/目录）。
+    为什么要单独支持它：华为产品文档官网只发 `.hdx`，用户在软件里点「导入资料」
+    直接选 .hdx 就能入库，不用先手工解包。
+    """
+    parts: List[str] = []
+    total = 0
+    for text in iter_hdx_pages(path):
+        parts.append(text)
+        total += len(text)
+        if total >= max_chars:
+            parts.append("……（文档过长，已截断）")
+            break
+    return _tidy("\n\n".join(parts))[:max_chars]
 
 
 def extract_docx(path: str) -> str:
@@ -240,12 +383,103 @@ def extract_text(path: str) -> str:
         return extract_pptx(path)[:MAX_DOC_CHARS]
     if ext == '.pdf':
         return extract_pdf(path)[:MAX_DOC_CHARS]
+    if ext == '.hdx':
+        return extract_hdx(path)
     raise RuntimeError(f"暂不支持的文件类型: {ext or '(无扩展名)'}")
 
 
 # ======================================================================
-# 分词与检索
+# 取回命令清单
 # ======================================================================
+_FENCE_RE = re.compile(r'```[^\n]*\n(.*?)```', re.S)
+# 一行命令的样子：英文开头，只含命令常用字符（中文说明、Markdown 标记都不算）
+_COMMAND_LINE_RE = re.compile(r'^[A-Za-z][A-Za-z0-9_\-./: ]*$')
+
+
+def extract_commands(text: str, limit: int = 200) -> List[str]:
+    """
+    从资料正文里取回命令清单（save_commands 的逆操作）
+
+    优先取代码块里的行；没有代码块时退化成"看起来像命令的 ASCII 行"。
+    取不到就返回空列表 —— 调用方据此判断缓存未命中。
+    """
+    body = text or ""
+    blocks = _FENCE_RE.findall(body)
+    lines: List[str] = []
+    for block in blocks:
+        lines.extend(block.splitlines())
+    if not lines:
+        lines = body.splitlines()
+
+    commands: List[str] = []
+    for raw in lines:
+        stripped = raw.strip()
+        # 先判围栏再剥反引号：否则 "```text" 会被剥成 "text" 当成命令
+        if not stripped or stripped.startswith("```"):
+            continue
+        line = stripped.strip('`').strip()
+        line = re.sub(r'^(\d+[.、)]|[-*•>])\s*', '', line).strip()
+        if not line or len(line) > 80 or not _COMMAND_LINE_RE.match(line):
+            continue
+        if line not in commands:
+            commands.append(line)
+        if len(commands) >= limit:
+            break
+    return commands
+
+
+# 命令行里允许出现的字符（参数占位符里的 <>、示例里的逗号点号都不算）
+_CLI_TOKEN_RE = re.compile(r'^[A-Za-z0-9\-./_*]+$')
+_CLI_FIRST_RE = re.compile(r'^[a-z][a-z0-9\-]{1,15}$')
+_CJK_RE = re.compile(r'[\u4e00-\u9fff]')
+#: 命令里不会出现的标点（出现就说明这行是正文/表格，不是命令）
+_CLI_BAD_CHARS = ",.;:()[]{}\"'=<>|、，；：（）【】"
+
+
+def find_command_candidates(text: str, limit: int = 300) -> List[str]:
+    """
+    从文档正文里粗筛出"看起像设备命令"的行，交给 AI 整理成正式清单
+
+    厂商手册里的命令一般是独立成行的纯英文小写 CLI。带中文、带标点、
+    超过 8 个词、首词不像命令动词的行一律跳过 —— 目的是给模型一份干净的
+    候选，别把大段正文塞进去（既省额度，也让整理结果更准）。
+    """
+    candidates: List[str] = []
+    for raw in (text or "").splitlines():
+        line = " ".join(raw.split())
+        if not line or len(line) > 120 or _CJK_RE.search(line):
+            continue
+        if any(ch in line for ch in _CLI_BAD_CHARS):
+            continue
+        tokens = line.split()
+        if not (1 <= len(tokens) <= 8):
+            continue
+        if not _CLI_FIRST_RE.match(tokens[0]):
+            continue
+        if any(not _CLI_TOKEN_RE.match(token) for token in tokens):
+            continue
+        if line not in candidates:
+            candidates.append(line)
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def even_sample(items, count: int):
+    """
+    从头到尾均匀取 count 个（顺序保持不变）
+
+    厚手册里的命令要跨章节采样：只取前 N 条会全是前几章的命令，
+    后面章节（接口/VLAN/生成树…）的命令根本轮不上。
+    """
+    items = list(items or [])
+    if count <= 0 or len(items) <= count:
+        return items
+    step = len(items) / count
+    return [items[int(index * step)] for index in range(count)]
+
+
+
 _TOKEN_ASCII_RE = re.compile(r'[a-zA-Z0-9_\-./:]{2,}')
 _TOKEN_CJK_RE = re.compile(r'[\u4e00-\u9fff]+')
 
@@ -267,6 +501,56 @@ def tokenize(text: str) -> List[str]:
         else:
             tokens.extend(block[i:i + 2] for i in range(len(block) - 1))
     return tokens
+
+
+# ------------------------------------------------------------ 厂家识别
+# 资料按"哪个厂家的设备"分类（用户 2026-10-17：分类需求分为哪个厂家的设备即可）。
+# 判定是**纯文本**猜的：文件名认不出就读正文开头 —— 不联网、不改文件。
+VENDOR_LABELS = {
+    "huawei": "华为",
+    "h3c": "新华三(H3C)",
+    "ruijie": "锐捷",
+    "tplink": "TP-LINK",
+    "cisco": "思科",
+    "unknown": "未识别",
+}
+VENDOR_KEYWORDS = {
+    "huawei": ("huawei", "华为", "坤灵", "cloudengine", "oceanstor", "airengine",
+               "s12700", "s16700", "s5700", "s6700", "s5730", "s6730", "ce6865",
+               "ce8850", "ne40", "ar6000", "usg6", "cloudengine"),
+    "h3c": ("h3c", "新华三", "华三", "comware", "s5560", "s6850", "s5130", "s6520",
+            "s12500", "msr", "wa2600", "hcl"),
+    "ruijie": ("ruijie", "锐捷", "rgos", "rg-", "eg-", "s2910", "s5750", "nbs"),
+    "tplink": ("tplink", "tp-link", "tp link", "普联", "tl-sg"),
+    "cisco": ("cisco", "思科", "catalyst", "nexus", "ios-xe", "ios-xr"),
+}
+VENDOR_HEAD_BYTES = 1200
+VENDOR_INDEX_FILENAME = ".vendors.json"
+
+
+def guess_vendor(text: str) -> str:
+    """从文件名或正文开头猜厂家：取**最先出现**的关键词（都认不出返回 'unknown'）
+
+    为什么用"最先出现"而不是"出现次数最多"：厂家文档里常拿别的厂家做对标
+    （比如 H3C 手册里提到华为），最先出现的厂家名通常就是文档自己的厂家；
+    而且这样只读文件开头就够，不必读完 700 MB 的索引。
+    """
+    low = (text or "").lower()
+    if not low:
+        return "unknown"
+    vendor = ""
+    at_best = -1
+    for name, words in VENDOR_KEYWORDS.items():
+        for word in words:
+            at = low.find(word)
+            if at >= 0 and (not vendor or at < at_best):
+                vendor, at_best = name, at
+    return vendor or "unknown"
+
+
+def vendor_label(vendor: str) -> str:
+    """厂家 id → 界面上的中文名"""
+    return VENDOR_LABELS.get(vendor or "unknown", vendor)
 
 
 class KnowledgeBase:
@@ -291,7 +575,10 @@ class KnowledgeBase:
         self._ready = False
         self._index_lock = threading.Lock()  # 串行化索引构建，避免并发写坏缓存
         self.last_error = ""
-        self.load_index()
+        # ⚠ 这里**不**加载索引：.index.json 本机实测 676 MB，读成 Python 对象要好几 GB
+        # 常驻内存，而多数时候用户根本不用资料库（要跑模拟器时更是白占）。
+        # 真正用到时由 _ensure_index_loaded() 惰性加载（见 load_index 上方的说明）。
+        self._index_loaded = False
 
     # ------------------------------------------------------------ 目录
     @property
@@ -314,10 +601,62 @@ class KnowledgeBase:
         self.root = os.path.abspath(path)
         self._index = {}
         self._ready = False
-        self.load_index()
+        self._index_loaded = False
 
     def set_enabled(self, enabled: bool):
         self.enabled = bool(enabled)
+
+    # ------------------------------------------------------------ 内存占用
+    def _ensure_index_loaded(self):
+        """惰性加载磁盘索引 —— **谁用谁加载**。
+
+        以前是在 `__init__` 里无条件 `load_index()`：`.index.json` 本机实测 676 MB
+        （27,297 篇 / 518,512 段），读成 Python 对象后常驻内存好几 GB，而大多数时候
+        用户根本不用资料库 —— 要跑 EVE-NG / eNSP 这类模拟器时，这些内存就是白占
+        （实测主进程曾到 7.9 GB）。改成本方法后：应用启动不碰索引，第一次真正
+        检索 / 列目录 / 建索引时才读。
+        """
+        if self._index_loaded:
+            return
+        self.load_index()
+        self._index_loaded = True
+
+    def memory_mb(self) -> float:
+        """粗估当前内存索引 + 检索缓存占多少 MB（只给界面提示用，不求精确）
+
+        ⚠ 这是**下界**：只数文本长度，没算 Python 对象开销（dict/list/str 头），
+        实际常驻内存通常是它的好几倍。要"真实释放量"用 `release()` 的 RSS 差值。
+        """
+        total = 0
+        for key, entry in self._index.items():
+            total += len(key) + 64
+            for chunk in (entry.get("chunks") or ()):
+                total += len(chunk) + 64
+        for chunk in self._chunk_cache:
+            total += len(chunk.get("text") or "") + 128
+        total += len(self._token_cache) * 96
+        return total / 1048576.0
+
+    def release(self) -> float:
+        """把内存里的索引与检索缓存全丢掉，返回**实测释放的 MB**。
+
+        索引本身还在磁盘上（`.index.json`），下次检索会自动重新加载。
+        用途：界面上的「释放内存」，或用户要跑模拟器等吃内存的程序时腾地方。
+
+        返回值优先用进程 RSS 前后差（Windows 实测准），拿不到才退回文本估算。
+        """
+        before = process_rss_mb()
+        estimate = self.memory_mb()
+        self._index = {}
+        self._chunk_cache = []
+        self._token_cache = []
+        self._df = Counter()
+        self._ready = False
+        self._index_loaded = False
+        gc.collect()
+        after = process_rss_mb()
+        delta = before - after
+        return delta if delta > 1 else estimate
 
     # ------------------------------------------------------------ 导入
     def import_paths(self, paths, move: bool = False, recursive: bool = True,
@@ -378,6 +717,12 @@ class KnowledgeBase:
             self._import_zip(src, target_dir, result)
             return
 
+        # hdx 包：存**抽取后的正文**，而不是把几百 MB 的二进制拷进资料库
+        # （27 个华为产品包 = 8 GB，直接拷进来纯属浪费，检索又只用得上正文）
+        if ext == '.hdx':
+            self._import_hdx(src, target_dir, result)
+            return
+
         if ext and ext not in SUPPORTED_EXTENSIONS:
             result["skipped"].append(name)
             reason = UNSUPPORTED_EXTENSIONS.get(ext, f"暂不支持的类型 {ext}")
@@ -434,6 +779,58 @@ class KnowledgeBase:
         except Exception as e:
             result["errors"].append((src, f"处理压缩包失败: {e}"))
 
+    #: hdx 单个产品正文动辄几 MB ~ 几十 MB，远超 MAX_DOC_CHARS。
+    #: 按这个大小切片，既保证**全文都能入库**，又不让单个文档大到拖垮索引。
+    HDX_CHUNK_CHARS = 350_000
+
+    def _import_hdx(self, src: str, target_dir: str, result: dict):
+        """华为 .hdx：抽出正文并**分片**存成多个 `.txt`。
+
+        为什么不直接拷原文件：.hdx 单个 20 MB ~ 440 MB，全量 27 个产品约 8 GB；
+        检索只用得上正文。存文本既省空间，也让索引更干净。
+        为什么分片：`extract_text()` 有 MAX_DOC_CHARS 上限，若只存一份，
+        24k 页的文档只能进前 200 页 —— 分片才能覆盖全文。
+        """
+        stem = os.path.splitext(os.path.basename(src))[0]
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+        except Exception as e:                                    # noqa: BLE001
+            result["errors"].append((src, f"建目录失败: {e}"))
+            return
+        buf: List[str] = []
+        total = 0
+        index = 0
+        try:
+            for text in iter_hdx_pages(src):
+                buf.append(text)
+                total += len(text)
+                if total < self.HDX_CHUNK_CHARS:
+                    continue
+                index += 1
+                self._write_hdx_chunk(stem, index, buf, target_dir, result)
+                buf, total = [], 0
+            if buf:
+                index += 1
+                self._write_hdx_chunk(stem, index, buf, target_dir, result)
+        except Exception as e:                                    # noqa: BLE001
+            result["errors"].append((src, f"解析 hdx 失败: {e}"))
+            return
+        if index == 0:
+            result["errors"].append((src, "hdx 内没有可用正文"))
+
+    def _write_hdx_chunk(self, stem: str, index: int, buf: List[str],
+                         target_dir: str, result: dict):
+        suffix = "" if index == 1 else "_part%d" % index
+        dest = self._unique_path(os.path.join(target_dir, stem + suffix + ".txt"))
+        head = "# %s%s\n\n" % (stem, ("（第 %d 部分）" % index) if index > 1 else "")
+        try:
+            with open(dest, "w", encoding="utf-8") as f:
+                f.write(head + "\n\n".join(buf))
+        except Exception as e:                                    # noqa: BLE001
+            result["errors"].append((dest, f"写入失败: {e}"))
+            return
+        result["added"].append(os.path.basename(dest))
+
     @staticmethod
     def _unique_path(path: str) -> str:
         """目标已存在时自动加序号，避免覆盖用户已有资料"""
@@ -463,7 +860,8 @@ class KnowledgeBase:
         return dest
 
     # ------------------------------------------------------------ 知识沉淀
-    NOTE_CATEGORIES = ("AI笔记", "命令速查", "配置案例", "排错记录", "巡检记录")
+    NOTE_CATEGORIES = ("AI笔记", "命令速查", "配置案例", "排错记录", "巡检记录",
+                       EXPERIENCE_CATEGORY)
 
     def save_note(self, title: str, content: str, category: str = "AI笔记",
                   tags=None, meta: dict = None) -> Optional[str]:
@@ -542,10 +940,82 @@ class KnowledgeBase:
         return self.save_note(title, "\n".join(body_lines), category, tags, meta)
 
     # ------------------------------------------------------------ 管理
-    def list_documents(self) -> List[dict]:
-        """列出资料库里的文件"""
+    # ------------------------------------------------------------ 厂家识别
+    def vendor_index_path(self) -> str:
+        """厂家缓存文件（以 . 开头，list_documents 会跳过它）"""
+        return os.path.join(self.root, VENDOR_INDEX_FILENAME)
+
+    def load_vendor_index(self) -> dict:
+        try:
+            with open(self.vendor_index_path(), 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def save_vendor_index(self, index: dict) -> None:
+        try:
+            with open(self.vendor_index_path(), 'w', encoding='utf-8') as f:
+                json.dump(index, f, ensure_ascii=False)
+        except OSError:
+            pass
+
+    def identify_vendors(self, documents: List[dict] = None) -> dict:
+        """给每篇资料认厂家：文件名认得出就用名字，认不出再读正文开头。
+
+        结果缓存在资料库根的 .vendors.json（按「文件名 → [修改时间, 厂家]」），
+        27k 篇也只认一次，之后打开资料管理不再读盘。返回 {文件名: 厂家}。
+        """
+        if documents is None:
+            documents = self.list_documents()
+        cache = self.load_vendor_index()
+        fresh: Dict[str, list] = {}
+        for document in documents:
+            name = document.get("name") or self._rel(document.get("path", ""))
+            mtime = float(document.get("mtime") or 0)
+            cached = cache.get(name)
+            vendor = None
+            if isinstance(cached, list) and len(cached) == 2:
+                try:
+                    if abs(float(cached[0]) - mtime) < 0.5:
+                        vendor = str(cached[1])
+                except (TypeError, ValueError):
+                    vendor = None
+            if vendor is None:
+                vendor = guess_vendor(name)
+                if vendor == "unknown":
+                    vendor = guess_vendor(self._read_head(document.get("path", "")))
+            fresh[name] = [mtime, vendor]
+            document["vendor"] = vendor
+        self.save_vendor_index(fresh)
+        return fresh
+
+    @staticmethod
+    def _read_head(path: str, limit: int = VENDOR_HEAD_BYTES) -> str:
+        """读文件开头（认厂家只认开头附近出现的厂商标识，不读全文）"""
+        try:
+            with open(path, 'rb') as f:
+                raw = f.read(limit)
+        except OSError:
+            return ""
+        return raw.decode('utf-8', errors='ignore')
+
+    @property
+    def index_loaded(self) -> bool:
+        """磁盘索引是否已在内存里（界面用它决定要不要显示片段数）"""
+        return bool(self._index_loaded)
+
+    def list_documents(self, light: bool = False) -> List[dict]:
+        """列出资料库里的文件
+
+        light=True：**不加载索引**，只走目录扫描（片段数/解析错误报 0/空）。
+        给"启动时刷一下状态栏"这种场景用 —— 索引 676 MB，读进来就是 883 MB 内存，
+        用户要跑模拟器时不能因为刷新个状态就把它读进来。
+        """
         if not os.path.isdir(self.root):
             return []
+        if not light:
+            self._ensure_index_loaded()
         documents = []
         for dirpath, _dirnames, filenames in os.walk(self.root):
             for filename in filenames:
@@ -557,7 +1027,7 @@ class KnowledgeBase:
                 except OSError:
                     continue
                 ext = os.path.splitext(filename)[1].lower()
-                entry = self._index.get(self._rel(full), {})
+                entry = {} if light else self._index.get(self._rel(full), {})
                 error = entry.get("error", "")
                 if not error and ext in UNSUPPORTED_EXTENSIONS:
                     error = UNSUPPORTED_EXTENSIONS[ext]
@@ -565,6 +1035,7 @@ class KnowledgeBase:
                     "name": os.path.relpath(full, self.root),
                     "path": full,
                     "ext": ext or "(无扩展名)",
+                "vendor": guess_vendor(filename),
                     "size": stat.st_size,
                     "mtime": stat.st_mtime,
                     "mtime_text": time.strftime("%Y-%m-%d %H:%M", time.localtime(stat.st_mtime)),
@@ -582,6 +1053,24 @@ class KnowledgeBase:
             path = os.path.join(self.root, name_or_path)
         if not os.path.abspath(path).startswith(os.path.abspath(self.root)):
             return False  # 只允许删除资料库内的文件
+
+        # 资料库里其实有**两类**条目：
+        #   1) 导入的文件           —— 文件 + 索引
+        #   2) save_commands()/save_note() 创建的 —— **只写进索引，不落盘**
+        # 第二类没有文件可删，但索引条目必须能删掉。
+        # 不处理这种情况时的表现极具迷惑性：调用方按名字删，返回 False，
+        # 文件系统里也确实找不到那个名字 —— 看起来"这个条目不存在"，
+        # 但它一直留在索引里参与检索。
+        self._ensure_index_loaded()
+        rel = self._rel(path)
+        if not os.path.exists(path):
+            if rel in self._index:
+                self._index.pop(rel, None)
+                self._ready = False
+                self.save_index()
+                return True
+            return False
+
         try:
             if os.path.isdir(path):
                 shutil.rmtree(path)
@@ -612,6 +1101,7 @@ class KnowledgeBase:
 
     def save_index(self):
         """写入索引缓存"""
+        self._ensure_index_loaded()   # 没加载就写 = 把磁盘上 27k 篇的索引清空，必须挡住
         if not self.ensure_dir():
             return False
         try:
@@ -631,6 +1121,7 @@ class KnowledgeBase:
         按文件修改时间判断是否需要重建，未变化的文件直接复用缓存。
         用锁串行化：界面可能在后台线程建索引，用户又同时触发一次检索/重建。
         """
+        self._ensure_index_loaded()   # 没加载就重建 = 27k 篇全部重抽文本（小时级），必须挡住
         with self._index_lock:
             return self._build_index_locked(force)
 
@@ -705,6 +1196,7 @@ class KnowledgeBase:
 
     def _ensure_ready(self):
         """首次检索前构建内存索引（词频统计）"""
+        self._ensure_index_loaded()
         if self._ready:
             return
         self._chunk_cache = []
@@ -750,25 +1242,107 @@ class KnowledgeBase:
         if not query_tokens:
             return []
 
+        # 查询里的英文/数字连起来，用于"短语整体命中"加成。
+        # 命令类查询（display interface brief）真正的信号是**这几个词连着出现**，
+        # 而不是它们各自在页面里出现多少次 —— 实测中 BGP 命令列表因为 display
+        # 出现几十次而排在真正的 interface brief 文档前面，就是缺这一项。
+        ascii_phrase = " ".join(t for t in query_tokens
+                                if t.isascii() and t.isalnum())
         total = len(self._chunk_cache)
+
+        # 查询词分档加权 —— 中文查询召回的根因所在。
+        # 文档正文里"配置""查看"这类动作词出现在上百篇里，IDF 早已被稀释成噪声；
+        # 而 VLAN / OSPF / S6700 这种技术术语才真正决定该召回哪一篇。
+        # 不区分两者时，"怎么配置 VLAN"会把 igmp-snooping 排到 VLAN 配置文档前面。
+        _CJK_STOP = {
+            "怎么", "如何", "什么", "哪些", "哪个", "为什", "配置", "查看",
+            "显示", "命令", "信息", "方法", "步骤", "使用", "进行", "可以", "如果",
+            "那么", "需要", "一个", "这个", "的话", "时候", "支持", "多少", "相关",
+            "介绍", "说明", "举例", "示例", "是否", "能否", "怎样", "有无",
+        }
+
+        def query_weight(token: str) -> float:
+            if token.isascii() and any(c.isalnum() for c in token):
+                # 含数字或全大写 = 型号/缩写（s5700 / vlan / ospf / acl）
+                if any(c.isdigit() for c in token) or token.isupper():
+                    return 4.0
+                return 3.0 if len(token) >= 3 else 1.5
+            return 0.15 if token in _CJK_STOP else 1.0
+
+        weights = {t: query_weight(t) for t in query_tokens}
+
+        # 中文概念 -> 英文命令词。
+        # 这是本产品最核心的用法：**工程师用中文提问，文档里写的是英文命令**。
+        # 用户问"怎么查看接口状态"，文档标题是 display interface brief；
+        # 中文 bigram 永远匹配不上英文字符串，必须靠这层映射搭桥。
+        _CONCEPT_EN = {
+            "查看": "display show", "显示": "display show", "查询": "display show",
+            "看看": "display show", "检查": "display check",
+            "接口": "interface", "端口": "interface port",
+            "状态": "status brief", "版本": "version",
+            "设备": "device", "单板": "device board slot",
+            "配置": "configuration config", "路由": "route routing",
+            "地址": "address", "表项": "table entry",
+            "光模块": "optical module transceiver",
+            "用户": "user", "日志": "log", "告警": "alarm",
+            "保存": "save", "重启": "reboot", "升级": "upgrade",
+            "备份": "backup", "恢复": "restore",
+            "聚合": "eth-trunk link-aggregation", "堆叠": "stack",
+            "生成树": "stp spanning-tree", "镜像": "mirror",
+            "安全": "security", "认证": "authentication",
+            "带宽": "bandwidth", "流量": "traffic",
+        }
+        # 泛化词：在网络文档里"设备""信息""命令"这类词几乎每篇都有，
+        # 映射出来的英文词区分度很低。实测"怎么查看设备版本"会因为
+        # 设备->device 让 display_poe_device 与 display_version 打平，
+        # 而用户真正的意图是 version。所以这类词降权。
+        _GENERIC_CONCEPT = {"设备", "信息", "命令", "系统", "功能", "情况",
+                            "相关", "内容", "方式", "操作"}
+        for token in list(query_tokens):
+            for en in _CONCEPT_EN.get(token, "").split():
+                if en not in weights:
+                    query_tokens.append(en)
+                    # 中等权重：它是推理出来的，不该压过用户明写的词，
+                    # 但要足以把对口文档从噪声里拉上来；泛化词再低一档。
+                    weights[en] = 1.2 if token in _GENERIC_CONCEPT else 2.5
+
+        # 权重之和作为覆盖率的分母：命中一个 VLAN 远比命中三个动作词有价值
+        weight_sum = sum(weights.values()) or 1.0
+
         scores = []
         for position, counter in enumerate(self._token_cache):
             score = 0.0
             matched = []
+            matched_weight = 0.0
             for token in query_tokens:
                 tf = counter.get(token, 0)
                 if not tf:
                     continue
                 idf = math.log(1 + total / (1 + self._df.get(token, 0))) + 0.1
-                score += (1 + math.log(tf)) * idf
+                # 词频封顶：一个词重复 50 次不该比"多命中几个不同的词"更有价值。
+                # 不封顶时常见词（display）会压过稀有词（brief），导致答非所问。
+                score += (1 + math.log(min(tf, 8))) * idf * weights[token]
                 matched.append(token)
+                matched_weight += weights[token]
             if score <= 0:
                 continue
-            # 文件名命中给额外加成（手册名里常带型号，用户常按型号搜）
+
+            text_low = self._chunk_cache[position]["text"].lower()
+
+            # 覆盖率：按**权重**衡量命中了查询的多大分量，而不是按词数 ——
+            # 命中一个 VLAN 比命中三个动作词更能说明问题。
+            score *= 0.25 + 0.75 * (matched_weight / weight_sum)
+
+            # 短语整体命中：命令查询的最强信号，给足权重让它能压过词频噪声
+            if len(ascii_phrase) >= 4 and ascii_phrase in text_low:
+                score += 8.0
+
+            # 文件名命中：用户常按型号搜，而型号往往只出现在文件名里
             name_tokens = self._chunk_cache[position]["name_tokens"]
-            score += 0.8 * sum(1 for token in query_tokens if token in name_tokens)
+            score += 2.0 * sum(weights[t] for t in query_tokens if t in name_tokens)
+
             # 长块归一化，避免长段落总是排前面
-            score /= math.sqrt(max(len(self._chunk_cache[position]["text"]), 100)) / 30
+            score /= math.sqrt(max(len(text_low), 100)) / 30
             scores.append((score, position, matched))
 
         scores.sort(key=lambda item: item[0], reverse=True)
@@ -808,6 +1382,31 @@ class KnowledgeBase:
             )
         return "\n\n".join(parts)[:max_chars]
 
+    def search_category(self, query: str, category: str,
+                        top_k: int = 3) -> List[dict]:
+        """
+        只在某个分类（子目录）内检索
+
+        先按更大范围召回再按目录前缀过滤：分类检索通常只要 2~3 条，
+        直接取 top_k 会被其它分类占位，把真正的命中挤掉。
+        """
+        category = (category or "").strip().strip("/\\")
+        if not category:
+            return []
+        hits = self.search(query, top_k=max(top_k * 6, 12))
+        prefix = category.replace("\\", "/") + "/"
+        return [hit for hit in hits
+                if str(hit.get("source", "")).replace("\\", "/").startswith(prefix)][:top_k]
+
+    def warm_up(self) -> int:
+        """
+        预热：把内存索引（词频统计）先算好，返回可检索的片段数
+
+        启动后后台调一次，之后第一次提问匹配就不用现算，响应更快。
+        """
+        self._ensure_ready()
+        return len(self._chunk_cache)
+
     # ------------------------------------------------------------ 工具
     def _rel(self, path: str) -> str:
         try:
@@ -815,10 +1414,22 @@ class KnowledgeBase:
         except ValueError:
             return path
 
-    def stats(self) -> dict:
-        """资料库概况"""
-        documents = self.list_documents()
+    def stats(self, light: bool = False) -> dict:
+        """资料库概况（light=True 时不加载索引，片段数按 0 报）"""
+        documents = self.list_documents(light=light)
         failed = [d for d in documents if d["error"]]
+
+        # "indexed" 在用户眼里是「资料库索建好了吗」，而 self._ready 表达的是
+        # 「**内存里**的检索索引已构建」—— 它是首次 search() 时才置位的懒加载标志。
+        # 直接用 _ready 的后果：刚建完索引马上去看概况，却显示"未建索引"，
+        # 用户以为白建了、要再点一次重建。这里改看**磁盘上的索引文件**这个持久事实。
+        index_ready = False
+        try:
+            if os.path.exists(self.index_path) and os.path.getsize(self.index_path) > 2:
+                index_ready = True
+        except OSError:
+            index_ready = False
+
         return {
             "root": self.root,
             "enabled": self.enabled,
@@ -826,5 +1437,5 @@ class KnowledgeBase:
             "failed": len(failed),
             "chunks": sum(d["chunks"] for d in documents),
             "size": sum(d["size"] for d in documents),
-            "indexed": self._ready,
+            "indexed": index_ready,
         }

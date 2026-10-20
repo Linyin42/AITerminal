@@ -1,0 +1,466 @@
+{
+  "generated_at": "2026-10-03 19:57:28",
+  "source": "knowledge.command（真实参数 vendor+text+examples=3，实读 MainWindow.cpp:472-475）",
+  "note": "S3 等价门槛：搬运后逐字段 0 差异；通过判据见 verdicts（各按其口径）",
+  "verdicts": [
+    [
+      "h3c",
+      "PASS_A:found=True"
+    ],
+    [
+      "huawei",
+      "PASS_A:found=True"
+    ],
+    [
+      "ruijie",
+      "PASS_B:found=False+数据不完整说明"
+    ]
+  ],
+  "queries": [
+    {
+      "vendor": "h3c",
+      "query": "display version",
+      "params": {
+        "vendor": "h3c",
+        "text": "display version",
+        "examples": 3
+      },
+      "fields": {
+        "source": "h3c_cr16000/01-基础配置指导/html/1651163613_2037953775_1189881682.htm",
+        "match": null,
+        "tech_note": null,
+        "examples": [
+          {
+            "title": "1.11  通过重启方式升级启动软件包配置举例（独立运行模式）",
+            "text": "```\ndisplay version\ntftp 2.2.2.2 get startup-a2105.ipe\ncopy startup-a2105.ipe startup-a2105-backup.ipe\nboot-loader file flash:/startup-a2105.ipe slot 0 main\nboot-loader file flash:/startup-a2105.ipe slot 1 main\nboot-loader file flash:/startup-a2105-backup.ipe slot 0 backup\nboot-loader file flash:/startup-a2105-backup.ipe slot 1 backup\ndisplay boot-loader\nreboot\n```\n- 来源：`h3c_cr16000/01-基础配置指导/html/1851801085_932185075_489840089.htm`\n\n### 1.12  通过重启方式升级启动软件包配置举例（IRF模式）",
+            "source": "h3c_cr16000/01-基础配置指导/html/1851801085_932185075_489840089.htm",
+            "chapter": "examples/基础配置-软件升级.md",
+            "anchor": "ex-基础配置-软件升级-1"
+          },
+          {
+            "title": "1.12  通过重启方式升级启动软件包配置举例（IRF模式）",
+            "text": "```\ndisplay version\ntftp 2.2.2.2 get startup-a2105.ipe\ncopy startup-a2105.ipe startup-a2105-backup.ipe\nboot-loader file flash:/startup-a2105.ipe chassis 1 slot 0 main\nboot-loader file flash:/startup-a2105.ipe chassis 1 slot 1 main\nboot-loader file flash:/startup-a2105.ipe chassis 2 slot 0 main\nboot-loader file flash:/startup-a2105.ipe chassis 2 slot 1 main\nboot-loader file flash:/startup-a2105-backup.ipe chassis 1 slot 0 backup\nboot-loader file flash:/startup-a2105-backup.ipe chassis 1 slot 1 backup\nboot-loader file flash:/startup-a2105-backup.ipe chassis 2 slot 0 backup\nboot-loader file flash:/startup-a2105-backup.ipe chassis 2 slot 1 backup\ndisplay boot-loader\nreboot\n```\n- 来源：`h3c_cr16000/01-基础配置指导/html/1851801085_932185075_1173032781.htm`\n\n### 通过重启方式升级启动软件包配置举例（独立运行模式）",
+            "source": "h3c_cr16000/01-基础配置指导/html/1851801085_932185075_1173032781.htm",
+            "chapter": "examples/基础配置-软件升级.md",
+            "anchor": "ex-基础配置-软件升级-2"
+          },
+          {
+            "title": "通过重启方式升级启动软件包配置举例（独立运行模式）",
+            "text": "```\ndisplay version\ntftp 2.2.2.2 get startup-a2105.ipe\ncopy startup-a2105.ipe startup-a2105-backup.ipe\nboot-loader file flash:/startup-a2105.ipe slot 0 main\nboot-loader file flash:/startup-a2105.ipe slot 1 main\nboot-loader file flash:/startup-a2105-backup.ipe slot 0 backup\nboot-loader file flash:/startup-a2105-backup.ipe slot 1 backup\ndisplay boot-loader\nreboot\n```\n- 来源：`h3c_s12500/01-基础配置指导/html/1851801085_932185075_906026181.htm`\n\n### 通过重启方式升级启动软件包配置举例（IRF模式）",
+            "source": "h3c_s12500/01-基础配置指导/html/1851801085_932185075_906026181.htm",
+            "chapter": "examples/基础配置-软件升级.md",
+            "anchor": "ex-基础配置-软件升级-3"
+          },
+          {
+            "title": "通过重启方式升级启动软件包配置举例（IRF模式）",
+            "text": "```\ndisplay version\ntftp 2.2.2.2 get startup-a2105.ipe\ncopy startup-a2105.ipe startup-a2105-backup.ipe\nboot-loader file flash:/startup-a2105.ipe chassis 1 slot 0 main\nboot-loader file flash:/startup-a2105.ipe chassis 1 slot 1 main\nboot-loader file flash:/startup-a2105.ipe chassis 2 slot 0 main\nboot-loader file flash:/startup-a2105.ipe chassis 2 slot 1 main\nboot-loader file flash:/startup-a2105-backup.ipe chassis 1 slot 0 backup\nboot-loader file flash:/startup-a2105-backup.ipe chassis 1 slot 1 backup\nboot-loader file flash:/startup-a2105-backup.ipe chassis 2 slot 0 backup\nboot-loader file flash:/startup-a2105-backup.ipe chassis 2 slot 1 backup\ndisplay boot-loader\nreboot\n```\n- 来源：`h3c_s12500/01-基础配置指导/html/1851801085_932185075_-373554877.htm`",
+            "source": "h3c_s12500/01-基础配置指导/html/1851801085_932185075_-373554877.htm",
+            "chapter": "examples/基础配置-软件升级.md",
+            "anchor": "ex-基础配置-软件升级-4"
+          },
+          {
+            "title": "1.8  应急Shell配置举例",
+            "text": "```\ndir\ndisplay version\nsystem-view\ninterface m-eth0\nip address 1.1.1.1 16\nip gateway 1.1.1.2\nping 1.2.1.1\ntftp 1.2.1.1 get system.bin flash:/system.bin\ndisplay install package flash:/system.bin\ninstall load flash:/system.bin\n```\n- 来源：`h3c_cr16000/01-基础配置指导/html/1651163613_2037953775_1147963557.htm`\n\n### 应急Shell配置举例",
+            "source": "h3c_cr16000/01-基础配置指导/html/1651163613_2037953775_1147963557.htm",
+            "chapter": "examples/基础配置-应急shell.md",
+            "anchor": "ex-基础配置-应急shell-1"
+          }
+        ],
+        "examplesCoverage": {
+          "total": 821,
+          "included": 675,
+          "skipped_empty": 0,
+          "skipped_long": 0,
+          "skipped_cap": 0,
+          "skipped_dup": 146,
+          "storage": "例子全文只在 examples/*.md；SQLite 只存指针( chapter#anchor )与元数据；index.json 只存定位信息",
+          "per_feature_limit": 500,
+          "note": "示例收录 675/821（跳过：steps 为空 0、超长 0、每 feature 超过 500 条 0）"
+        },
+        "explanation": {
+          "available": true,
+          "reason": "",
+          "title": "display version（基础配置/设备管理）",
+          "file": "chapters/基础配置-设备管理.md",
+          "anchor": "cmd-display-version",
+          "markdown": "- 命令格式：`display version`\n- 视图：任意视图\n- 适用型号：CR16000、S12500\n- 功能分类：基础配置/设备管理\n- 来源：`h3c_cr16000/01-基础配置指导/html/-1297067626_-587192630_-319423468.htm`\n- 来源：`h3c_s12500/01-基础配置指导/html/-957525610_-587192630_1013540445.htm`\n\n_（本机没有该命令的讲解原文，只有上表的字段与来源）_",
+          "source": "h3c_cr16000/01-基础配置指导/html/-1297067626_-587192630_-319423468.htm"
+        },
+        "found": true,
+        "layer": "sqlite"
+      },
+      "response": {
+        "found": true,
+        "layer": "sqlite",
+        "vendor": "h3c",
+        "query": "display version",
+        "command": "display version",
+        "syntax": "display version",
+        "view": "任意视图",
+        "feature": "基础配置/应急Shell",
+        "model": "CR16000",
+        "source": "h3c_cr16000/01-基础配置指导/html/1651163613_2037953775_1189881682.htm",
+        "rows": [
+          {
+            "command": "display version",
+            "syntax": "display version",
+            "view": "任意视图",
+            "feature": "基础配置/应急Shell",
+            "model": "CR16000",
+            "source": "h3c_cr16000/01-基础配置指导/html/1651163613_2037953775_1189881682.htm"
+          },
+          {
+            "command": "display version",
+            "syntax": "display version",
+            "view": "任意视图",
+            "feature": "基础配置/设备管理",
+            "model": "CR16000",
+            "source": "h3c_cr16000/01-基础配置指导/html/-1297067626_-587192630_-319423468.htm"
+          },
+          {
+            "command": "display version",
+            "syntax": "display version",
+            "view": "任意视图",
+            "feature": "基础配置/设备管理",
+            "model": "S12500",
+            "source": "h3c_s12500/01-基础配置指导/html/-957525610_-587192630_1013540445.htm"
+          }
+        ],
+        "examples": [
+          {
+            "title": "1.11  通过重启方式升级启动软件包配置举例（独立运行模式）",
+            "text": "```\ndisplay version\ntftp 2.2.2.2 get startup-a2105.ipe\ncopy startup-a2105.ipe startup-a2105-backup.ipe\nboot-loader file flash:/startup-a2105.ipe slot 0 main\nboot-loader file flash:/startup-a2105.ipe slot 1 main\nboot-loader file flash:/startup-a2105-backup.ipe slot 0 backup\nboot-loader file flash:/startup-a2105-backup.ipe slot 1 backup\ndisplay boot-loader\nreboot\n```\n- 来源：`h3c_cr16000/01-基础配置指导/html/1851801085_932185075_489840089.htm`\n\n### 1.12  通过重启方式升级启动软件包配置举例（IRF模式）",
+            "source": "h3c_cr16000/01-基础配置指导/html/1851801085_932185075_489840089.htm",
+            "chapter": "examples/基础配置-软件升级.md",
+            "anchor": "ex-基础配置-软件升级-1"
+          },
+          {
+            "title": "1.12  通过重启方式升级启动软件包配置举例（IRF模式）",
+            "text": "```\ndisplay version\ntftp 2.2.2.2 get startup-a2105.ipe\ncopy startup-a2105.ipe startup-a2105-backup.ipe\nboot-loader file flash:/startup-a2105.ipe chassis 1 slot 0 main\nboot-loader file flash:/startup-a2105.ipe chassis 1 slot 1 main\nboot-loader file flash:/startup-a2105.ipe chassis 2 slot 0 main\nboot-loader file flash:/startup-a2105.ipe chassis 2 slot 1 main\nboot-loader file flash:/startup-a2105-backup.ipe chassis 1 slot 0 backup\nboot-loader file flash:/startup-a2105-backup.ipe chassis 1 slot 1 backup\nboot-loader file flash:/startup-a2105-backup.ipe chassis 2 slot 0 backup\nboot-loader file flash:/startup-a2105-backup.ipe chassis 2 slot 1 backup\ndisplay boot-loader\nreboot\n```\n- 来源：`h3c_cr16000/01-基础配置指导/html/1851801085_932185075_1173032781.htm`\n\n### 通过重启方式升级启动软件包配置举例（独立运行模式）",
+            "source": "h3c_cr16000/01-基础配置指导/html/1851801085_932185075_1173032781.htm",
+            "chapter": "examples/基础配置-软件升级.md",
+            "anchor": "ex-基础配置-软件升级-2"
+          },
+          {
+            "title": "通过重启方式升级启动软件包配置举例（独立运行模式）",
+            "text": "```\ndisplay version\ntftp 2.2.2.2 get startup-a2105.ipe\ncopy startup-a2105.ipe startup-a2105-backup.ipe\nboot-loader file flash:/startup-a2105.ipe slot 0 main\nboot-loader file flash:/startup-a2105.ipe slot 1 main\nboot-loader file flash:/startup-a2105-backup.ipe slot 0 backup\nboot-loader file flash:/startup-a2105-backup.ipe slot 1 backup\ndisplay boot-loader\nreboot\n```\n- 来源：`h3c_s12500/01-基础配置指导/html/1851801085_932185075_906026181.htm`\n\n### 通过重启方式升级启动软件包配置举例（IRF模式）",
+            "source": "h3c_s12500/01-基础配置指导/html/1851801085_932185075_906026181.htm",
+            "chapter": "examples/基础配置-软件升级.md",
+            "anchor": "ex-基础配置-软件升级-3"
+          },
+          {
+            "title": "通过重启方式升级启动软件包配置举例（IRF模式）",
+            "text": "```\ndisplay version\ntftp 2.2.2.2 get startup-a2105.ipe\ncopy startup-a2105.ipe startup-a2105-backup.ipe\nboot-loader file flash:/startup-a2105.ipe chassis 1 slot 0 main\nboot-loader file flash:/startup-a2105.ipe chassis 1 slot 1 main\nboot-loader file flash:/startup-a2105.ipe chassis 2 slot 0 main\nboot-loader file flash:/startup-a2105.ipe chassis 2 slot 1 main\nboot-loader file flash:/startup-a2105-backup.ipe chassis 1 slot 0 backup\nboot-loader file flash:/startup-a2105-backup.ipe chassis 1 slot 1 backup\nboot-loader file flash:/startup-a2105-backup.ipe chassis 2 slot 0 backup\nboot-loader file flash:/startup-a2105-backup.ipe chassis 2 slot 1 backup\ndisplay boot-loader\nreboot\n```\n- 来源：`h3c_s12500/01-基础配置指导/html/1851801085_932185075_-373554877.htm`",
+            "source": "h3c_s12500/01-基础配置指导/html/1851801085_932185075_-373554877.htm",
+            "chapter": "examples/基础配置-软件升级.md",
+            "anchor": "ex-基础配置-软件升级-4"
+          },
+          {
+            "title": "1.8  应急Shell配置举例",
+            "text": "```\ndir\ndisplay version\nsystem-view\ninterface m-eth0\nip address 1.1.1.1 16\nip gateway 1.1.1.2\nping 1.2.1.1\ntftp 1.2.1.1 get system.bin flash:/system.bin\ndisplay install package flash:/system.bin\ninstall load flash:/system.bin\n```\n- 来源：`h3c_cr16000/01-基础配置指导/html/1651163613_2037953775_1147963557.htm`\n\n### 应急Shell配置举例",
+            "source": "h3c_cr16000/01-基础配置指导/html/1651163613_2037953775_1147963557.htm",
+            "chapter": "examples/基础配置-应急shell.md",
+            "anchor": "ex-基础配置-应急shell-1"
+          }
+        ],
+        "commands": [
+          "display version",
+          "display version",
+          "display version"
+        ],
+        "explanation": {
+          "available": true,
+          "reason": "",
+          "title": "display version（基础配置/设备管理）",
+          "file": "chapters/基础配置-设备管理.md",
+          "anchor": "cmd-display-version",
+          "markdown": "- 命令格式：`display version`\n- 视图：任意视图\n- 适用型号：CR16000、S12500\n- 功能分类：基础配置/设备管理\n- 来源：`h3c_cr16000/01-基础配置指导/html/-1297067626_-587192630_-319423468.htm`\n- 来源：`h3c_s12500/01-基础配置指导/html/-957525610_-587192630_1013540445.htm`\n\n_（本机没有该命令的讲解原文，只有上表的字段与来源）_",
+          "source": "h3c_cr16000/01-基础配置指导/html/-1297067626_-587192630_-319423468.htm"
+        },
+        "examplesCoverage": {
+          "total": 821,
+          "included": 675,
+          "skipped_empty": 0,
+          "skipped_long": 0,
+          "skipped_cap": 0,
+          "skipped_dup": 146,
+          "storage": "例子全文只在 examples/*.md；SQLite 只存指针( chapter#anchor )与元数据；index.json 只存定位信息",
+          "per_feature_limit": 500,
+          "note": "示例收录 675/821（跳过：steps 为空 0、超长 0、每 feature 超过 500 条 0）"
+        }
+      }
+    },
+    {
+      "vendor": "huawei",
+      "query": "display interface brief",
+      "params": {
+        "vendor": "huawei",
+        "text": "display interface brief",
+        "examples": 3
+      },
+      "fields": {
+        "source": "huawei_ce16800/v3r23c00/DISPLAYIFBRIEF(IFMOM).html",
+        "match": null,
+        "tech_note": null,
+        "examples": [
+          {
+            "title": "display interface brief 使用实例",
+            "text": "```\ndisplay interface brief\ndisplay interface brief main\n```\n- 来源：`huawei_ce16800/v3r23c00/DISPLAYIFBRIEF(IFMOM).html`\n\n### display interface brief main 使用实例",
+            "source": "huawei_ce16800/v3r23c00/DISPLAYIFBRIEF(IFMOM).html",
+            "chapter": "examples/接口管理.md",
+            "anchor": "ex-接口管理-6"
+          },
+          {
+            "title": "display interface brief main 使用实例",
+            "text": "```\ndisplay interface ethernet brief main\ndisplay interface ethernet brief\n```\n- 来源：`huawei_ce16800/v3r23c00/DISPLAYIFETHBRIEF(IFMOM).html`\n\n### display interface counters 使用实例",
+            "source": "huawei_ce16800/v3r23c00/DISPLAYIFETHBRIEF(IFMOM).html",
+            "chapter": "examples/接口管理.md",
+            "anchor": "ex-接口管理-7"
+          },
+          {
+            "title": "display interface brief 使用实例",
+            "text": "```\ndisplay interface ethernet brief\ndisplay interface ethernet brief main\n```\n- 来源：`huawei_usg6000f/V600R025C10/DISPLAYIFETHBRIEF(IFMOM).html`\n\n### display interface counters 使用实例",
+            "source": "huawei_usg6000f/V600R025C10/DISPLAYIFETHBRIEF(IFMOM).html",
+            "chapter": "examples/接口管理.md",
+            "anchor": "ex-接口管理-93"
+          },
+          {
+            "title": "display interface brief 使用实例",
+            "text": "```\ndisplay interface ethernet brief\ndisplay interface ethernet brief main\ndisplay interface Ethernet brief\n```\n- 来源：`huawei_netengine_ar/v6r25c10_enterprise/CLI/DISPLAYIFETHBRIEF(IFMOM).html`\n\n### display interface counters 使用实例",
+            "source": "huawei_netengine_ar/v6r25c10_enterprise/CLI/DISPLAYIFETHBRIEF(IFMOM).html",
+            "chapter": "examples/接口管理.md",
+            "anchor": "ex-接口管理-210"
+          },
+          {
+            "title": "过滤命令行显示信息",
+            "text": "```\ndisplay interface brief | exclude Ethernet|NULL|Tunnel\ndisplay current-configuration | include vlan\n```\n- 来源：`huawei_ar_v200r010/dc/dc_cfg_cli_0019.html`\n\n### 如何自定义命令级别",
+            "source": "huawei_ar_v200r010/dc/dc_cfg_cli_0019.html",
+            "chapter": "examples/配置指南-通过命令行.md",
+            "anchor": "ex-配置指南-通过命令行-5"
+          }
+        ],
+        "examplesCoverage": {
+          "total": 27993,
+          "included": 13510,
+          "skipped_empty": 0,
+          "skipped_long": 0,
+          "skipped_cap": 12774,
+          "skipped_dup": 1709,
+          "storage": "例子全文只在 examples/*.md；SQLite 只存指针( chapter#anchor )与元数据；index.json 只存定位信息",
+          "per_feature_limit": 500,
+          "note": "示例收录 13510/27993（跳过：steps 为空 0、超长 0、每 feature 超过 500 条 12774）"
+        },
+        "explanation": {
+          "available": true,
+          "reason": "",
+          "title": "display interface brief（接口管理命令）",
+          "file": "chapters/接口管理命令.md",
+          "anchor": "cmd-display-interface-brief",
+          "markdown": "- 命令格式：`display interface brief [ main ]`\n- 视图：所有视图\n- 适用型号：AR-V200R010\n- 功能分类：接口管理命令\n- 来源：`huawei_ar_v200r010/dc/display_interface_brief.html`\n\n_（本机没有该命令的讲解原文，只有上表的字段与来源）_",
+          "source": "huawei_ar_v200r010/dc/display_interface_brief.html"
+        },
+        "found": true,
+        "layer": "sqlite"
+      },
+      "response": {
+        "found": true,
+        "layer": "sqlite",
+        "vendor": "huawei",
+        "query": "display interface brief",
+        "command": "display interface brief",
+        "syntax": "display interface brief [ ifType ]",
+        "view": "所有视图",
+        "feature": "接口管理",
+        "model": "CE16800",
+        "source": "huawei_ce16800/v3r23c00/DISPLAYIFBRIEF(IFMOM).html",
+        "rows": [
+          {
+            "command": "display interface brief",
+            "syntax": "display interface brief [ ifType ]",
+            "view": "所有视图",
+            "feature": "接口管理",
+            "model": "CE16800",
+            "source": "huawei_ce16800/v3r23c00/DISPLAYIFBRIEF(IFMOM).html"
+          },
+          {
+            "command": "display interface brief",
+            "syntax": "display interface brief [ main ]",
+            "view": "所有视图",
+            "feature": "接口管理命令",
+            "model": "AR-V200R010",
+            "source": "huawei_ar_v200r010/dc/display_interface_brief.html"
+          },
+          {
+            "command": "display interface brief",
+            "syntax": "display interface brief [ ifType ]",
+            "view": "所有视图",
+            "feature": "接口管理",
+            "model": "USG6000F",
+            "source": "huawei_usg6000f/V600R025C10/DISPLAYIFBRIEF(IFMOM).html"
+          },
+          {
+            "command": "display interface brief",
+            "syntax": "display interface interface-type1 brief",
+            "view": "所有视图",
+            "feature": "接口管理",
+            "model": "USG6000F",
+            "source": "huawei_usg6000f/V600R025C10/DISPLAYIFETHBRIEF(IFMOM).html"
+          },
+          {
+            "command": "display interface brief",
+            "syntax": "display interface brief [ ifType ]",
+            "view": "所有视图",
+            "feature": "接口管理",
+            "model": "NetEngine-AR",
+            "source": "huawei_netengine_ar/v6r25c10_enterprise/CLI/DISPLAYIFBRIEF(IFMOM).html"
+          },
+          {
+            "command": "display interface brief",
+            "syntax": "display interface interface-type1 brief",
+            "view": "所有视图",
+            "feature": "接口管理",
+            "model": "NetEngine-AR",
+            "source": "huawei_netengine_ar/v6r25c10_enterprise/CLI/DISPLAYIFETHBRIEF(IFMOM).html"
+          }
+        ],
+        "examples": [
+          {
+            "title": "display interface brief 使用实例",
+            "text": "```\ndisplay interface brief\ndisplay interface brief main\n```\n- 来源：`huawei_ce16800/v3r23c00/DISPLAYIFBRIEF(IFMOM).html`\n\n### display interface brief main 使用实例",
+            "source": "huawei_ce16800/v3r23c00/DISPLAYIFBRIEF(IFMOM).html",
+            "chapter": "examples/接口管理.md",
+            "anchor": "ex-接口管理-6"
+          },
+          {
+            "title": "display interface brief main 使用实例",
+            "text": "```\ndisplay interface ethernet brief main\ndisplay interface ethernet brief\n```\n- 来源：`huawei_ce16800/v3r23c00/DISPLAYIFETHBRIEF(IFMOM).html`\n\n### display interface counters 使用实例",
+            "source": "huawei_ce16800/v3r23c00/DISPLAYIFETHBRIEF(IFMOM).html",
+            "chapter": "examples/接口管理.md",
+            "anchor": "ex-接口管理-7"
+          },
+          {
+            "title": "display interface brief 使用实例",
+            "text": "```\ndisplay interface ethernet brief\ndisplay interface ethernet brief main\n```\n- 来源：`huawei_usg6000f/V600R025C10/DISPLAYIFETHBRIEF(IFMOM).html`\n\n### display interface counters 使用实例",
+            "source": "huawei_usg6000f/V600R025C10/DISPLAYIFETHBRIEF(IFMOM).html",
+            "chapter": "examples/接口管理.md",
+            "anchor": "ex-接口管理-93"
+          },
+          {
+            "title": "display interface brief 使用实例",
+            "text": "```\ndisplay interface ethernet brief\ndisplay interface ethernet brief main\ndisplay interface Ethernet brief\n```\n- 来源：`huawei_netengine_ar/v6r25c10_enterprise/CLI/DISPLAYIFETHBRIEF(IFMOM).html`\n\n### display interface counters 使用实例",
+            "source": "huawei_netengine_ar/v6r25c10_enterprise/CLI/DISPLAYIFETHBRIEF(IFMOM).html",
+            "chapter": "examples/接口管理.md",
+            "anchor": "ex-接口管理-210"
+          },
+          {
+            "title": "过滤命令行显示信息",
+            "text": "```\ndisplay interface brief | exclude Ethernet|NULL|Tunnel\ndisplay current-configuration | include vlan\n```\n- 来源：`huawei_ar_v200r010/dc/dc_cfg_cli_0019.html`\n\n### 如何自定义命令级别",
+            "source": "huawei_ar_v200r010/dc/dc_cfg_cli_0019.html",
+            "chapter": "examples/配置指南-通过命令行.md",
+            "anchor": "ex-配置指南-通过命令行-5"
+          }
+        ],
+        "commands": [
+          "display interface brief",
+          "display interface brief",
+          "display interface brief",
+          "display interface brief",
+          "display interface brief",
+          "display interface brief"
+        ],
+        "explanation": {
+          "available": true,
+          "reason": "",
+          "title": "display interface brief（接口管理命令）",
+          "file": "chapters/接口管理命令.md",
+          "anchor": "cmd-display-interface-brief",
+          "markdown": "- 命令格式：`display interface brief [ main ]`\n- 视图：所有视图\n- 适用型号：AR-V200R010\n- 功能分类：接口管理命令\n- 来源：`huawei_ar_v200r010/dc/display_interface_brief.html`\n\n_（本机没有该命令的讲解原文，只有上表的字段与来源）_",
+          "source": "huawei_ar_v200r010/dc/display_interface_brief.html"
+        },
+        "examplesCoverage": {
+          "total": 27993,
+          "included": 13510,
+          "skipped_empty": 0,
+          "skipped_long": 0,
+          "skipped_cap": 12774,
+          "skipped_dup": 1709,
+          "storage": "例子全文只在 examples/*.md；SQLite 只存指针( chapter#anchor )与元数据；index.json 只存定位信息",
+          "per_feature_limit": 500,
+          "note": "示例收录 13510/27993（跳过：steps 为空 0、超长 0、每 feature 超过 500 条 12774）"
+        }
+      }
+    },
+    {
+      "vendor": "ruijie",
+      "query": "show version",
+      "params": {
+        "vendor": "ruijie",
+        "text": "show version",
+        "examples": 3
+      },
+      "fields": {
+        "source": "",
+        "match": "",
+        "tech_note": "",
+        "examples": [],
+        "examplesCoverage": {
+          "total": 5721,
+          "included": 3216,
+          "skipped_empty": 0,
+          "skipped_long": 0,
+          "skipped_cap": 0,
+          "skipped_dup": 2505,
+          "storage": "例子全文只在 examples/*.md；SQLite 只存指针( chapter#anchor )与元数据；index.json 只存定位信息",
+          "per_feature_limit": 500,
+          "note": "示例收录 3216/5721（跳过：steps 为空 0、超长 0、每 feature 超过 500 条 0）"
+        },
+        "explanation": {
+          "available": false,
+          "reason": "该命令暂无技术解释（本机还没有从厂商文档提取的讲解文本）；ruijie 命令数据不完整：源文档 ruijie_n18000/fulltext.txt 未包含 show 命令参考（本库 show 开头仅 2 条，对比 h3c display 1767 条）",
+          "title": "",
+          "file": "",
+          "anchor": "",
+          "markdown": "",
+          "source": ""
+        },
+        "found": false,
+        "layer": "jsonl"
+      },
+      "response": {
+        "found": false,
+        "query": "show version",
+        "vendor": "ruijie",
+        "match": "",
+        "command": "",
+        "syntax": "",
+        "view": "",
+        "feature": "",
+        "model": "",
+        "source": "",
+        "tech_note": "",
+        "examples": [],
+        "layer": "jsonl",
+        "explanation": {
+          "available": false,
+          "reason": "该命令暂无技术解释（本机还没有从厂商文档提取的讲解文本）；ruijie 命令数据不完整：源文档 ruijie_n18000/fulltext.txt 未包含 show 命令参考（本库 show 开头仅 2 条，对比 h3c display 1767 条）",
+          "title": "",
+          "file": "",
+          "anchor": "",
+          "markdown": "",
+          "source": ""
+        },
+        "examplesCoverage": {
+          "total": 5721,
+          "included": 3216,
+          "skipped_empty": 0,
+          "skipped_long": 0,
+          "skipped_cap": 0,
+          "skipped_dup": 2505,
+          "storage": "例子全文只在 examples/*.md；SQLite 只存指针( chapter#anchor )与元数据；index.json 只存定位信息",
+          "per_feature_limit": 500,
+          "note": "示例收录 3216/5721（跳过：steps 为空 0、超长 0、每 feature 超过 500 条 0）"
+        }
+      }
+    }
+  ]
+}

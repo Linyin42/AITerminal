@@ -1,26 +1,28 @@
 """
-AI面板 - AI 辅助 / 联网查询 / 待执行命令
+AI 高级面板 —— AI 设置入口 + 资料检索
 
-分三个页签:
-    1. AI 助手   —— API 配置、任务描述、快捷命令、屏幕内容预览、AI 输出、自动模式
-    2. 联网查询  —— 让 AI 上网查厂商命令与报错含义，结果可回填给 AI
-    3. 待执行    —— AI 生成的命令进入待执行队列，人工勾选后批量下发
+两个页签:
+    1. AI 助手   —— 只放 AI 配置的状态提示与「AI 设置…」入口
+    2. 资料检索  —— 本地资料库 / 联网检索配置、提问与结果
+
+会话相关的 AI 交互（提问、生成命令、解释输出）都在「Catty 对话」页签里完成。
 """
 import os
 import threading
-import time
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
     QLineEdit, QPushButton, QLabel, QComboBox, QSpinBox,
     QGroupBox, QCheckBox, QListWidget, QListWidgetItem,
-    QTabWidget, QSplitter, QMessageBox
+    QTabWidget, QMessageBox, QScrollArea, QFrame
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QUrl
 from PyQt6.QtGui import QDesktopServices
 
-from core.llm import PROVIDERS, LLMClient, LLMError, provider_defaults, provider_label
+from core import local_model
+from core.llm import provider_defaults, provider_label
 from config.settings import Settings
-from config.presets import TASK_TEMPLATES, get_vendor_commands
+from ui.ai_settings_dialog import AISettingsDialog
 from ui.output_highlighter import OutputHighlighter
 
 SEARCH_BACKENDS = [
@@ -32,48 +34,37 @@ SEARCH_BACKENDS = [
     ("关闭联网检索", "off"),
 ]
 
-#: AI 提供方的展示顺序
-PROVIDER_ORDER = ("anthropic", "deepseek", "openai_compat")
-
 
 class AIPanel(QWidget):
     """
-    AI辅助面板
+    AI 高级面板
 
     信号:
-        analyze_requested(str):      请求分析当前输出（参数为任务描述）
-        execute_requested():         请求执行最近一次 AI 生成的命令
-        explain_requested():         请求 AI 解释当前输出
-        auto_mode_changed(bool):     自动模式开关变化
-        credentials_changed(str, str): API Key / 模型变化
-        research_requested(str):     请求联网查询（参数为问题）
-        search_config_changed():     检索配置变化
-        queue_execute_requested(list): 请求批量执行待执行队列中的命令
+        credentials_changed(dict):     AI 凭据变化 {provider, api_key, model, base_url}
+        connection_tested(bool, str):  测试连接结果（由 AI 设置对话框转发）
+        research_requested(str):       请求联网查询（参数为问题）
+        search_config_changed():       检索配置变化
+        import_knowledge_requested():  点"导入资料文件"
+        manage_knowledge_requested():  点"管理资料库"
+        save_note_requested(str, str, str): 存为资料: 标题, 内容, 分类
+        local_status_ready(dict):      本地模型档位探测结果（后台线程 → 主线程）
     """
 
-    analyze_requested = pyqtSignal(str)
-    execute_requested = pyqtSignal()
-    explain_requested = pyqtSignal()
-    auto_mode_changed = pyqtSignal(bool)
     credentials_changed = pyqtSignal(dict)   # {provider, api_key, model, base_url}
-    connection_tested = pyqtSignal(bool, str)  # 测试连接结果: 是否成功, 说明文字
+    connection_tested = pyqtSignal(bool, str)
     research_requested = pyqtSignal(str)
     search_config_changed = pyqtSignal()
-    queue_execute_requested = pyqtSignal(list)
     import_knowledge_requested = pyqtSignal()   # 点"导入资料文件"
     manage_knowledge_requested = pyqtSignal()   # 点"管理资料库"
     save_note_requested = pyqtSignal(str, str, str)  # 存为资料: 标题, 内容, 分类
-
-    MODELS = [
-        "claude-sonnet-4-20250514",
-        "claude-opus-4-20250514",
-        "claude-3-5-haiku-20241022",
-    ]
+    local_status_ready = pyqtSignal(dict)    # core.local_model.decide() 的返回值
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.settings = Settings()
-        self.last_command = ""
+        # 先接信号再建界面：启动时 load_settings() 会立刻发起一次档位探测，
+        # 结果必须能回到主线程（Qt 信号跨线程是队列投递，安全）。
+        self.local_status_ready.connect(self._on_local_status_ready)
         self.init_ui()
         self.load_settings()
 
@@ -83,175 +74,55 @@ class AIPanel(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self.build_assistant_tab(), "AI 助手")
-        self.tabs.addTab(self.build_research_tab(), "资料检索")
-        self.tabs.addTab(self.build_queue_tab(), "待执行")
+        # 每个页签都套一层滚动容器：页签内容较多时若直接放，面板的最小高度
+        # 会把主窗口顶得比屏幕还高（底部对话输入框、状态栏会被裁掉）。
+        # 套上滚动后最小高度很小，窗口可自由缩小，内容靠滚动查看。
+        self.tabs.addTab(self._wrap_scroll(self.build_assistant_tab()), "AI 助手")
+        self.tabs.addTab(self._wrap_scroll(self.build_research_tab()), "资料检索")
         layout.addWidget(self.tabs)
+
+    @staticmethod
+    def _wrap_scroll(inner: QWidget) -> QScrollArea:
+        """把页签内容包进滚动区，避免撑大整个窗口的最小高度"""
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.Shape.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        area.setStyleSheet("QScrollArea { background: transparent; }"
+                           "QScrollArea > QWidget > QWidget { background: transparent; }")
+        area.setWidget(inner)
+        area.setMinimumHeight(140)
+        return area
 
     # -------------------------------------------------- 页签 1: AI 助手
     def build_assistant_tab(self):
+        """只留 AI 配置的状态提示与设置入口"""
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(2, 2, 2, 2)
 
-        # API 配置
-        api_group = QGroupBox("AI配置")
-        api_layout = QVBoxLayout()
+        settings_row = QHBoxLayout()
+        self.ai_config_label = QLabel("")
+        self.ai_config_label.setToolTip("AI 的提供方 / 模型，点右侧按钮修改")
+        self.ai_config_label.setStyleSheet("color: #93A0B4; font-size: 11px;")
+        settings_row.addWidget(self.ai_config_label, 1)
 
-        provider_row = QHBoxLayout()
-        provider_row.addWidget(QLabel("提供方:"))
-        self.provider_combo = QComboBox()
-        for name in PROVIDER_ORDER:
-            self.provider_combo.addItem(provider_label(name), name)
-        self.provider_combo.currentIndexChanged.connect(self.on_provider_changed)
-        provider_row.addWidget(self.provider_combo, 1)
-        api_layout.addLayout(provider_row)
+        self.btn_ai_settings = QPushButton("AI 设置…")
+        self.btn_ai_settings.setToolTip(
+            "配置 AI 提供方 / API Key / 接口地址 / 模型，并可测试连接")
+        self.btn_ai_settings.clicked.connect(self.open_settings_dialog)
+        settings_row.addWidget(self.btn_ai_settings)
+        layout.addLayout(settings_row)
 
-        api_layout.addWidget(QLabel("API Key:"))
-        self.api_key_input = QLineEdit()
-        self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_key_input.editingFinished.connect(self.on_credentials_changed)
-        api_layout.addWidget(self.api_key_input)
-
-        # 接口地址（仅 OpenAI 兼容协议需要）
-        self.base_row = QWidget()
-        base_layout = QHBoxLayout(self.base_row)
-        base_layout.setContentsMargins(0, 0, 0, 0)
-        base_layout.addWidget(QLabel("接口地址:"))
-        self.base_url_input = QLineEdit()
-        self.base_url_input.editingFinished.connect(self.on_credentials_changed)
-        base_layout.addWidget(self.base_url_input, 1)
-        api_layout.addWidget(self.base_row)
-
-        model_row = QHBoxLayout()
-        model_row.addWidget(QLabel("模型:"))
-        self.model_combo = QComboBox()
-        self.model_combo.setEditable(True)
-        self.model_combo.currentTextChanged.connect(self.on_credentials_changed)
-        model_row.addWidget(self.model_combo, 1)
-        api_layout.addLayout(model_row)
-
-        # 测试连接：用当前填写的内容（不必先保存）发一次最小请求
-        test_row = QHBoxLayout()
-        self.btn_test = QPushButton("测试连接")
-        self.btn_test.setToolTip(
-            "用当前填写的内容（不必先保存）发一次最小请求，\n"
-            "验证 API Key / 接口地址 / 模型是否可用")
-        self.btn_test.clicked.connect(self.on_test_connection)
-        test_row.addWidget(self.btn_test)
-        self.test_result = QLabel("")
-        self.test_result.setWordWrap(True)
-        self.test_result.setStyleSheet("color: #98a1b5; font-size: 11px;")
-        test_row.addWidget(self.test_result, 1)
-        api_layout.addLayout(test_row)
-        self.connection_tested.connect(self._on_test_finished)
-
-        self.provider_hint = QLabel("")
-        self.provider_hint.setWordWrap(True)
-        self.provider_hint.setStyleSheet("color: #98a1b5; font-size: 11px;")
-        api_layout.addWidget(self.provider_hint)
-
-        api_group.setLayout(api_layout)
-        layout.addWidget(api_group)
-
-        # 任务设置
-        task_group = QGroupBox("任务设置")
-        task_layout = QVBoxLayout()
-
-        task_layout.addWidget(QLabel("任务描述:"))
-        self.task_input = QTextEdit()
-        self.task_input.setPlaceholderText("例如：检查设备版本和接口状态")
-        self.task_input.setMaximumHeight(60)
-        task_layout.addWidget(self.task_input)
-
-        self.template_combo = QComboBox()
-        self.template_combo.addItem("— 选择任务模板 —")
-        self.template_combo.addItems(TASK_TEMPLATES)
-        self.template_combo.currentTextChanged.connect(self.on_template_selected)
-        task_layout.addWidget(self.template_combo)
-
-        task_group.setLayout(task_layout)
-        layout.addWidget(task_group)
-
-        # 快捷命令
-        quick_group = QGroupBox("快捷命令")
-        quick_layout = QVBoxLayout()
-        self.quick_list = QListWidget()
-        self.quick_list.setMaximumHeight(96)
-        self.quick_list.setToolTip("双击发送该命令")
-        self.quick_list.itemDoubleClicked.connect(self.on_quick_command)
-        quick_layout.addWidget(self.quick_list)
-        quick_group.setLayout(quick_layout)
-        layout.addWidget(quick_group)
-
-        # 屏幕内容预览（AI 看到的内容）
-        screen_group = QGroupBox("屏幕内容（AI 可见）")
-        screen_layout = QVBoxLayout()
-        self.screen_preview = QTextEdit()
-        self.screen_preview.setReadOnly(True)
-        self.screen_preview.setMaximumHeight(110)
-        self.screen_preview.setPlaceholderText("会话建立后这里显示最近捕获到的设备输出")
-        self.screen_preview.setStyleSheet(
-            "background-color: #14161f; color: #98a1b5;"
-            " font-family: Consolas, monospace; font-size: 11px;"
-        )
-        # 设备输出着色（错误/UP/DOWN/IP/MAC/接口名）
-        OutputHighlighter(self.screen_preview.document())
-        screen_layout.addWidget(self.screen_preview)
-        screen_group.setLayout(screen_layout)
-        layout.addWidget(screen_group)
-
-        # AI 输出
-        output_group = QGroupBox("AI输出")
-        output_layout = QVBoxLayout()
-        self.ai_output = QTextEdit()
-        self.ai_output.setReadOnly(True)
-        self.ai_output.setStyleSheet("""
-            QTextEdit {
-                background-color: #14161f;
-                color: #e6e9f2;
-            }
-        """)
-        # 输出着色：AI 生成的命令/设备回显里的关键信息标出来
-        OutputHighlighter(self.ai_output.document())
-        output_layout.addWidget(self.ai_output)
-        output_group.setLayout(output_layout)
-        layout.addWidget(output_group, 1)
-
-        # 按钮
-        btn_layout = QHBoxLayout()
-        self.btn_analyze = QPushButton("分析当前输出")
-        self.btn_analyze.clicked.connect(self.analyze_output)
-        btn_layout.addWidget(self.btn_analyze)
-
-        self.btn_execute = QPushButton("执行AI命令")
-        self.btn_execute.clicked.connect(self.execute_ai_command)
-        btn_layout.addWidget(self.btn_execute)
-        layout.addLayout(btn_layout)
-
-        btn_layout2 = QHBoxLayout()
-        self.btn_explain = QPushButton("解释输出")
-        self.btn_explain.clicked.connect(self.explain_requested.emit)
-        btn_layout2.addWidget(self.btn_explain)
-
-        self.btn_save_output = QPushButton("💾 存为资料")
-        self.btn_save_output.setToolTip(
-            "把 AI 输出（生成的命令、检索到的资料）沉淀到本地资料库，\n"
-            "以后查命令时能直接检索到"
-        )
-        self.btn_save_output.clicked.connect(self.on_save_output)
-        btn_layout2.addWidget(self.btn_save_output)
-
-        self.btn_clear = QPushButton("清空")
-        self.btn_clear.clicked.connect(self.clear_output)
-        btn_layout2.addWidget(self.btn_clear)
-        layout.addLayout(btn_layout2)
-
-        self.chk_auto = QCheckBox("自动模式（AI自动执行命令）")
-        self.chk_auto.stateChanged.connect(
-            lambda _: self.auto_mode_changed.emit(self.chk_auto.isChecked())
-        )
-        layout.addWidget(self.chk_auto)
+        # 本机档位 / 本地 LLM 可用性（P2）。**只标注，不自动启动模型**：
+        # 启动时异步探测一次填进来，用户要真起服务就自己去「AI 设置…」点按钮。
+        # 内存/显存不够时这里会如实显示"仅本地检索"——降级不等于降质。
+        self.local_model_label = QLabel("")
+        self.local_model_label.setToolTip("本机档位与本地 LLM 可用性（只读提示）")
+        self.local_model_label.setStyleSheet("color: #93A0B4; font-size: 11px;")
+        self.local_model_label.setWordWrap(True)
+        layout.addWidget(self.local_model_label)
+        layout.addStretch(1)
 
         return page
 
@@ -267,7 +138,7 @@ class AIPanel(QWidget):
 
         self.kb_status = QLabel("尚未导入资料")
         self.kb_status.setWordWrap(True)
-        self.kb_status.setStyleSheet("color: #98a1b5;")
+        self.kb_status.setStyleSheet("color: #93A0B4;")
         kb_layout.addWidget(self.kb_status)
 
         kb_row = QHBoxLayout()
@@ -369,7 +240,7 @@ class AIPanel(QWidget):
         self.research_output = QTextEdit()
         self.research_output.setReadOnly(True)
         self.research_output.setStyleSheet(
-            "background-color: #14161f; color: #e6e9f2;"
+            "background-color: #0E1117; color: #E6EAF2;"
         )
         OutputHighlighter(self.research_output.document())
         answer_layout.addWidget(self.research_output)
@@ -388,72 +259,14 @@ class AIPanel(QWidget):
 
         return page
 
-    # -------------------------------------------------- 页签 3: 待执行
-    def build_queue_tab(self):
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(2, 2, 2, 2)
-
-        tip = QLabel("AI 生成的命令会进入这里。勾选后点“执行勾选项”批量下发，双击可编辑。")
-        tip.setWordWrap(True)
-        tip.setStyleSheet("color: #98a1b5;")
-        layout.addWidget(tip)
-
-        self.queue_list = QListWidget()
-        self.queue_list.setToolTip("双击编辑命令，勾选后执行")
-        self.queue_list.itemChanged.connect(self.on_queue_item_changed)
-        layout.addWidget(self.queue_list, 1)
-
-        row1 = QHBoxLayout()
-        btn_run_checked = QPushButton("执行勾选项")
-        btn_run_checked.clicked.connect(self.run_checked_commands)
-        row1.addWidget(btn_run_checked)
-
-        btn_run_all = QPushButton("执行全部")
-        btn_run_all.clicked.connect(self.run_all_commands)
-        row1.addWidget(btn_run_all)
-        layout.addLayout(row1)
-
-        row2 = QHBoxLayout()
-        btn_check_all = QPushButton("全选")
-        btn_check_all.clicked.connect(lambda: self.set_all_checked(True))
-        row2.addWidget(btn_check_all)
-
-        btn_uncheck_all = QPushButton("全不选")
-        btn_uncheck_all.clicked.connect(lambda: self.set_all_checked(False))
-        row2.addWidget(btn_uncheck_all)
-
-        btn_remove = QPushButton("移除勾选")
-        btn_remove.clicked.connect(self.remove_checked)
-        row2.addWidget(btn_remove)
-
-        btn_save_queue = QPushButton("💾 存为资料")
-        btn_save_queue.setToolTip("把队列里的命令沉淀成一份命令速查资料")
-        btn_save_queue.clicked.connect(self.on_save_queue)
-        row2.addWidget(btn_save_queue)
-
-        btn_clear = QPushButton("清空")
-        btn_clear.clicked.connect(self.clear_queue)
-        row2.addWidget(btn_clear)
-        layout.addLayout(row2)
-
-        self.queue_status = QLabel("队列为空")
-        self.queue_status.setStyleSheet("color: #98a1b5;")
-        layout.addWidget(self.queue_status)
-
-        return page
-
     # ------------------------------------------------------------ 配置
     def load_settings(self):
         """从配置载入 AI 与检索设置"""
-        provider = self.settings.ai_provider
-        index = self.provider_combo.findData(provider)
-        self.provider_combo.blockSignals(True)
-        self.provider_combo.setCurrentIndex(index if index >= 0 else 0)
-        self.provider_combo.blockSignals(False)
-        self.apply_provider_fields(provider)
-
-        self.chk_auto.setChecked(bool(self.settings.get("auto_mode_default", False)))
+        self.update_ai_config_label()
+        # 顺带把本机档位/本地 LLM 可用性标注一次（异步，不阻塞界面）。
+        # 面板在启动时就被主窗口建出来（main_window.py:191），所以这里就是
+        # "应用启动时判档"的落点；**只标注，不自动拉起模型**。
+        self.refresh_local_status()
 
         # 检索设置
         self.set_combo_by_data(self.backend_combo, self.settings.search_backend)
@@ -462,48 +275,62 @@ class AIPanel(QWidget):
         self.read_pages_spin.setValue(self.settings.search_read_pages)
         self.chk_ai_search.setChecked(self.settings.ai_auto_search)
 
-    def apply_provider_fields(self, provider: str):
-        """把某提供方的密钥 / 模型 / 接口地址填到界面上"""
-        provider = (provider or "anthropic").lower()
-        defaults = provider_defaults(provider)
-        config = self.settings.get_provider_config(provider)
+    def update_ai_config_label(self):
+        """刷新"当前：提供方 / 模型"提示"""
+        self.ai_config_label.setText(
+            f"当前：{provider_label(self.get_provider())} / {self.get_model()}")
 
-        self.api_key_input.setText(self.settings.get_api_key_for(provider))
-        self.api_key_input.setPlaceholderText(defaults.get("key_hint", ""))
+    # ------------------------------------------------------ 本地模型标注（P2）
+    def refresh_local_status(self):
+        """探测本机档位并把结论写进 `local_model_label`（**不自动启动模型**）。
 
-        self.base_url_input.setText(config["base_url"])
-        self.base_row.setVisible(provider != "anthropic")
+        ⚠ 不能在 UI 线程里直接调 `local_model.decide()`：它内部要起
+        `llama-server --list-devices` 子进程（秒级），同步等就是卡启动。
+        所以立刻显示一句便宜的"探测中…"（`server_status()` 只读 pid 文件），
+        完整判定丢后台线程，结果经 `local_status_ready` 信号回主线程。
+        """
+        try:
+            st = local_model.server_status()
+        except Exception:                       # noqa: BLE001
+            st = {}
+        if st.get("running"):
+            note = f"本地服务在跑：{st.get('model') or '未知模型'}"
+        else:
+            note = "本地服务未启动"
+        self.local_model_label.setText(f"本地模型：探测中…（{note}）")
+        self.local_model_label.setToolTip("正在判定本机档位（不影响本地资料检索）")
+        threading.Thread(target=self._local_probe_worker, daemon=True).start()
 
-        self.model_combo.blockSignals(True)
-        self.model_combo.clear()
-        models = list(defaults.get("models") or [])
-        if config["model"] and config["model"] not in models:
-            models.insert(0, config["model"])
-        self.model_combo.addItems(models)
-        self.model_combo.setCurrentText(config["model"])
-        self.model_combo.blockSignals(False)
+    def _local_probe_worker(self):
+        """后台线程：拿判定结果，回主线程。异常也要给结论，不能留"探测中…"。"""
+        try:
+            self.local_status_ready.emit(local_model.decide())
+        except Exception as e:                  # noqa: BLE001
+            self.local_status_ready.emit({
+                "mode": local_model.MODE_RETRIEVAL,
+                "label": f"本地模型探测失败（{type(e).__name__}）", "detail": str(e),
+                "base_url": "", "tier": "", "model": "", "device": "",
+                "reason": str(e)})
 
-        hints = {
-            "anthropic": "Anthropic 官方接口，需要 sk-ant- 开头的密钥。",
-            "deepseek": "DeepSeek 官方接口（OpenAI 兼容）。密钥在 platform.deepseek.com 申请；"
-                        "deepseek-chat 通用，deepseek-reasoner 推理更强但更慢。",
-            "openai_compat": "任何 OpenAI 兼容服务：vLLM / Ollama / 中转站等，"
-                             "填服务商的接口地址（一般以 /v1 结尾）。",
-        }
-        self.provider_hint.setText(hints.get(provider, ""))
+    def _on_local_status_ready(self, decision):
+        """写标注。文案与「AI 设置…」对话框共用 `local_model.describe()`，两处不许各写一套。"""
+        text = local_model.describe(decision)
+        if decision.get("mode") == local_model.MODE_STARTABLE:
+            # 只提示去哪起，不代替用户起 —— 自动拉起会凭空吃 2-5GB 内存/显存
+            text += "｜可在「AI 设置…」里一键启动"
+        self.local_model_label.setText("本地模型：" + text)
+        self.local_model_label.setToolTip(local_model.describe(decision))
 
-    def on_provider_changed(self):
-        """切换提供方：先保存上一家的配置，再载入新一家的"""
-        previous = self.settings.ai_provider
-        self.settings.set_provider_config(
-            previous, model=self.model_combo.currentText().strip(),
-            base_url=self.base_url_input.text().strip())
-        self.settings.set_api_key_for(previous, self.api_key_input.text().strip())
+    def open_settings_dialog(self):
+        """打开 AI 设置对话框"""
+        dialog = AISettingsDialog(self)
+        dialog.saved.connect(self.on_ai_settings_saved)
+        dialog.connection_tested.connect(self.connection_tested.emit)
+        dialog.exec()
 
-        provider = self.provider_combo.currentData()
-        self.settings.ai_provider = provider
-        self.apply_provider_fields(provider)
-        self.settings.save()
+    def on_ai_settings_saved(self):
+        """对话框保存后刷新界面，并通知主窗口新凭据生效"""
+        self.load_settings()
         self.on_credentials_changed()
 
     @staticmethod
@@ -514,39 +341,22 @@ class AIPanel(QWidget):
                 return
 
     def get_provider(self) -> str:
-        return self.provider_combo.currentData() or "anthropic"
+        return self.settings.ai_provider
 
     def get_api_key(self) -> str:
-        """获取API Key"""
-        return self.api_key_input.text().strip()
+        """获取API Key（当前提供方的）"""
+        return (self.settings.api_key or "").strip()
 
     def get_base_url(self) -> str:
-        return self.base_url_input.text().strip()
+        return self.settings.get_provider_config(self.get_provider())["base_url"]
 
     def get_model(self) -> str:
         """获取模型名（留空则用提供方默认）"""
-        return (self.model_combo.currentText().strip()
+        return (self.settings.get_provider_config(self.get_provider())["model"]
                 or provider_defaults(self.get_provider())["model"])
 
-    def get_task(self) -> str:
-        """获取任务描述"""
-        return self.task_input.toPlainText().strip()
-
-    def get_auto_mode(self) -> bool:
-        return self.chk_auto.isChecked()
-
-    def set_quick_commands(self, vendor: str):
-        """按设备厂商刷新快捷命令列表"""
-        self.quick_list.clear()
-        for label, cmd in get_vendor_commands(vendor).items():
-            item = QListWidgetItem(f"{label}  |  {cmd}")
-            item.setData(Qt.ItemDataRole.UserRole, cmd)
-            item.setToolTip("双击发送该命令")
-            self.quick_list.addItem(item)
-
-    # ------------------------------------------------------------ AI 助手事件
     def on_credentials_changed(self):
-        """保存凭据并通知主窗口"""
+        """保存凭据并通知主窗口（AI 设置对话框保存后也走这里）"""
         provider = self.get_provider()
         key = self.get_api_key()
         model = self.get_model()
@@ -560,107 +370,6 @@ class AIPanel(QWidget):
             "provider": provider, "api_key": key,
             "model": model, "base_url": base_url,
         })
-
-    # ------------------------------------------------------------ 测试连接
-    def on_test_connection(self):
-        """
-        用**当前输入框里的值**（不必先保存）发一次最小请求验证连通性。
-
-        注意：故意不用已保存的值 —— 用户改了 Key 还没失焦保存就点测试，
-        测旧值等于白测。也不阻断保存：网络临时不通时照样能存 Key。
-        """
-        provider = self.get_provider()
-        api_key = self.get_api_key()
-        model = self.get_model()
-        base_url = self.get_base_url()
-
-        if not api_key:
-            self._set_test_result("请先填写 API Key", ok=False)
-            return
-        if provider != "anthropic" and not base_url:
-            self._set_test_result("请先填写接口地址", ok=False)
-            return
-
-        self.btn_test.setEnabled(False)
-        self._set_test_result("测试中…", ok=None)
-        threading.Thread(
-            target=self._test_worker,
-            args=(provider, api_key, model, base_url),
-            daemon=True,
-        ).start()
-
-    def _test_worker(self, provider: str, api_key: str, model: str, base_url: str):
-        """后台线程里跑网络请求，结果通过信号回主线程（不能直接碰控件）"""
-        try:
-            client = LLMClient(provider=provider, api_key=api_key,
-                               model=model, base_url=base_url)
-            client.chat(
-                "You are a connectivity probe. Reply with exactly: ok",
-                [{"role": "user", "content": "ping"}],
-                max_tokens=8,      # 最小请求，成本可忽略
-            )
-            self.connection_tested.emit(True, f"已连通 · {model}")
-        except LLMError as e:
-            # LLMError 的文案已经是翻译过的人话（401/网络不可达等）
-            self.connection_tested.emit(False, str(e))
-        except Exception as e:
-            self.connection_tested.emit(False, f"{type(e).__name__}: {e}")
-
-    def _on_test_finished(self, ok: bool, message: str):
-        self.btn_test.setEnabled(True)
-        self._set_test_result(message, ok=ok)
-
-    def _set_test_result(self, text: str, ok):
-        """ok: True 成功 / False 失败 / None 进行中"""
-        if ok is True:
-            color, prefix = "#3fb950", "✓ "
-        elif ok is False:
-            color, prefix = "#f85149", "✗ "
-        else:
-            color, prefix = "#98a1b5", ""
-        self.test_result.setText(prefix + text)
-        self.test_result.setStyleSheet(f"color: {color}; font-size: 11px;")
-        self.test_result.setToolTip(text)
-
-    def on_template_selected(self, text: str):
-        if text and not text.startswith("—"):
-            self.task_input.setPlainText(text)
-
-    def on_quick_command(self, item: QListWidgetItem):
-        cmd = item.data(Qt.ItemDataRole.UserRole)
-        if cmd:
-            self.append_output(f"[快捷命令] {cmd}")
-            self.analyze_requested.emit(cmd)
-
-    def append_output(self, text: str):
-        """添加AI输出"""
-        self.ai_output.append(text)
-        self.ai_output.ensureCursorVisible()
-
-    def clear_output(self):
-        """清空输出"""
-        self.ai_output.clear()
-
-    def analyze_output(self):
-        """请求分析当前输出"""
-        self.analyze_requested.emit(self.get_task())
-
-    def execute_ai_command(self):
-        """请求执行最近一条 AI 命令"""
-        self.execute_requested.emit()
-
-    def set_last_command(self, command: str):
-        """记录最近一次 AI 生成的命令"""
-        self.last_command = command
-        self.btn_execute.setToolTip(f"执行: {command}")
-
-    def update_screen_preview(self, text: str):
-        """更新"AI 可见的屏幕内容"预览"""
-        if not self.screen_preview.hasFocus():
-            self.screen_preview.setPlainText((text or "")[-2000:])
-            self.screen_preview.verticalScrollBar().setValue(
-                self.screen_preview.verticalScrollBar().maximum()
-            )
 
     # ------------------------------------------------------------ 联网查询
     def on_search_config_changed(self):
@@ -746,99 +455,3 @@ class AIPanel(QWidget):
                 for entry in entries
             )
         self.save_note_requested.emit(title, content, "命令速查")
-
-    def on_save_output(self):
-        """把 AI 输出（生成的命令 / 检索过程）沉淀到本地资料库"""
-        text = self.ai_output.toPlainText().strip()
-        if not text:
-            QMessageBox.information(self, "没有内容", "AI 输出为空，先让 AI 分析一次。")
-            return
-        title = self.get_task() or "AI 建议命令"
-        self.save_note_requested.emit(title[:60], text[-4000:], "AI笔记")
-
-    def on_save_queue(self):
-        """把待执行队列里的命令沉淀成一份命令速查"""
-        commands = self.all_commands()
-        if not commands:
-            QMessageBox.information(self, "队列为空", "待执行队列里没有命令。")
-            return
-        title = "命令清单 " + time.strftime("%m-%d %H:%M")
-        content = "```\n" + "\n".join(commands) + "\n```"
-        self.save_note_requested.emit(title, content, "命令速查")
-
-    # ------------------------------------------------------------ 待执行队列
-    def add_commands(self, commands, checked: bool = True):
-        """把命令加入待执行队列（自动去重）"""
-        existing = set()
-        for index in range(self.queue_list.count()):
-            existing.add(self.queue_list.item(index).text().strip())
-
-        added = 0
-        for command in commands or []:
-            command = (command or "").strip()
-            if not command or command in existing:
-                continue
-            item = QListWidgetItem(command)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable |
-                          Qt.ItemFlag.ItemIsEditable)
-            item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
-            self.queue_list.addItem(item)
-            existing.add(command)
-            added += 1
-
-        self.update_queue_status()
-        return added
-
-    def on_queue_item_changed(self, _item):
-        self.update_queue_status()
-
-    def update_queue_status(self):
-        total = self.queue_list.count()
-        checked = len(self.checked_commands())
-        self.queue_status.setText(
-            f"共 {total} 条，勾选 {checked} 条" if total else "队列为空"
-        )
-
-    def checked_commands(self):
-        """取勾选的命令"""
-        result = []
-        for index in range(self.queue_list.count()):
-            item = self.queue_list.item(index)
-            if item.checkState() == Qt.CheckState.Checked:
-                result.append(item.text().strip())
-        return result
-
-    def all_commands(self):
-        return [self.queue_list.item(i).text().strip()
-                for i in range(self.queue_list.count())]
-
-    def set_all_checked(self, checked: bool):
-        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
-        for index in range(self.queue_list.count()):
-            self.queue_list.item(index).setCheckState(state)
-        self.update_queue_status()
-
-    def remove_checked(self):
-        for index in range(self.queue_list.count() - 1, -1, -1):
-            item = self.queue_list.item(index)
-            if item.checkState() == Qt.CheckState.Checked:
-                self.queue_list.takeItem(index)
-        self.update_queue_status()
-
-    def clear_queue(self):
-        self.queue_list.clear()
-        self.update_queue_status()
-
-    def run_checked_commands(self):
-        commands = self.checked_commands()
-        if not commands:
-            QMessageBox.information(self, "没有勾选", "请先勾选要执行的命令。")
-            return
-        self.queue_execute_requested.emit(commands)
-
-    def run_all_commands(self):
-        commands = self.all_commands()
-        if not commands:
-            QMessageBox.information(self, "队列为空", "待执行队列里没有命令。")
-            return
-        self.queue_execute_requested.emit(commands)

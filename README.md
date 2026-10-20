@@ -7,6 +7,8 @@
 
 ## 功能
 
+⚠ 下表为【旧版 PyQt6 界面】功能表，部分条目（联网检索/待执行队列/模板库/快照等）现行未必存在；现行功能与维护说明见文末「维护入口」。
+
 - **三种连接方式**：SSH（密码/密钥）、Telnet、Serial Console
 - **Console 兼容性对齐 MobaXterm**：完整帧格式（数据位/校验/停止位）、
   四种流控、DTR/RTS 电平、**Break 信号（进 BootROM）**、运行时切波特率、
@@ -160,3 +162,69 @@ aiterminal/
 ## 许可证
 
 MIT License
+
+## 维护入口（2026-10 追加）
+
+### 1. 厂商知识库怎么建、怎么更新
+```powershell
+$env:PYTHONUTF8=1
+python _vendor_cmd_tools\build_vendor_knowledge.py                 # 只建源文件变过的厂商（增量）
+python _vendor_cmd_tools\build_vendor_knowledge.py --vendor h3c     # 单家
+python _vendor_cmd_tools\build_vendor_knowledge.py --rebuild        # 忽略缓存全量重建
+python _vendor_cmd_tools\build_vendor_knowledge.py --out <dir>      # 改输出目录（默认=应用目录/knowledge）
+python _vendor_cmd_tools\build_vendor_knowledge.py --no-verify      # 跳过建库期"索引→锚点"不变量检查
+python _vendor_cmd_tools\build_vendor_knowledge.py --examples-per-feature 500   # 示例上限（默认 500）
+```
+- **产物**：`knowledge/<vendor>/{commands.sqlite, chapters/*.md, examples/*.md, index.json}`。
+- **不变量检查（默认开）**：建完库逐条核对"索引里的每个候选，其 md 里**真的**有那个锚点"；
+  坏指针**不发布**（写进 `index["broken"]`）并**让构建失败**。锚点必须写在 `## 标题` **之后**——
+  读层是从锚点往后切到下一个 `##`，写在前面会切出 0 字符（右栏会误报"没有找到锚点"）。
+- **示例截断如实标注**：统计在 `index.json` 的 `examples_coverage`（含跳过原因），
+  界面左栏会显示"示例收录 X/Y"；**不许静默截断**。
+
+### 2. ⚠ `knowledge/` 必须跟引擎一起同步
+读层 `core/vendor_knowledge.py` 的默认目录是"相对它自己 `core/` 的位置"，而运行时 `core/`
+在构建产物目录 → **改完 Python 或重建完知识库，都要跑**：
+```powershell
+python _automation\ait_sync_engine.py     # 同步 engine/ core/ config/ knowledge/
+```
+不同步的典型症状：知识库建好了、界面却一直 `found=False`。
+
+### 3. 「使用总结」的四层追踪（复现"记一半"用）
+```powershell
+$env:AIT_USAGE_TRACE="$env:TEMP\usage_trace.log"   # 不给就零开销
+# 再启动 AITerminal 复现一次，然后看这个文件：
+#   [L1 C++]     submitLine / sendToSession（命令原文、真实发出的字节 hex）
+#   [L2 rpc]     m_session_write（逐字符 data）/ typed.terminator（攒够一行）
+#   [L3 recorder] note_command / note_output / recorded / downgraded_ok
+#   时间戳 %H:%M:%S，四层可直接按时间对齐
+```
+- `usage.state` / `usage.list` 的返回里带 **`pid`**：一眼分辨"记录器"和"读列表"是不是同一个引擎进程。
+- 记录只存本机 `%APPDATA%\AITerminal\usage-log\YYYY-MM-DD.md`，**不上传**。
+
+### 4. 知识库命令查询的日志
+`knowledge.command` 每次都会写一行引擎日志：
+`layer=sqlite|jsonl vendor=… query=… command=… chapter=… anchor=… available=…`
+—— "右栏落错章节"这类问题直接看日志定位，不必猜。
+
+### 5. 已知未做 / 未验证（评审用）
+
+**能力声明（给用户看的，不是"暂未做"）**
+- **不支持拖边缩放**：主窗口**只能拖动自绘标题行**移动，只有**右下角 `QSizeGrip`** 可缩放；
+  **六个对话框完全不可缩放**。使用说明口径与之保持一致。
+- **P2-5 外框/阴影**：未做 —— 必须与"非客户区=0"、region grab 判据**成对**修改，故未半做。
+
+**终端着色断言的一条用例已移除（如实记录）**
+- 原用例：`DRAM:  512M bytes` 不得上蓝/绿。**移除原因**：该断言读的产物（脚本会打印其
+  绝对路径 + mtime + sha256）里，`lineColors()`（按文本块聚合）与 `runColors()`（按 run
+  切分）对同一条文本给出**归属歧义**，一轮内无法给出确定结论；实测两份导出均为中性
+  `#f3f5fc`（产品行为正确）。为不把"解释不清的红"留在交付状态，移除该用例；
+  DRAM 的"不上琥珀"与"数字中性"分别由反例循环与 `State=` 两条覆盖。
+
+**数据缺口（如实标注，不用 AI 编）**
+- **ruijie `show` 命令参考：缺源，待补**。本机 `_vendor_docs/`、`_vendor_cmd_tools/`、
+  `_vendor_cmd/` 三个目录里都**没有**"锐捷 show 命令参考"类真实文档；现有的
+  `ruijie_n18000/fulltext.txt` 只是配置手册（show 开头仅个位数条 vs h3c display 1767 条）。
+  在找到真实文档之前，界面保持"数据不完整"的如实标注。
+- 串口热插拔未实测；"正在使用"标注未出图。
+

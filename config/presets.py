@@ -7,42 +7,28 @@ PROTOCOL_DEFAULTS = {
     "SSH": {"port": 22},
     "Telnet": {"port": 23},
     "Serial": {"port": 0, "baudrate": 9600},
+    # eNSP Pro 平台固定 8443（设备命令行走 HTTP+STOMP，不是 TCP 端口）
+    "eNSP": {"port": 8443},
 }
 
 # 快速预设（连接对话框"快速预设"下拉使用）
+# 只保留 SSH / Telnet / Console 三项；主机、串口、凭据由用户自行填写，
+# 不再硬编码 COM 口 / 用户名（硬编码 COM3 曾导致"连了错误串口、终端无输出"）
 PRESET_CONNECTIONS = {
-    "华为交换机 (SSH)": {
-        "name": "华为交换机",
+    "SSH 连接": {
         "protocol": "SSH",
-        "host": "",
         "port": 22,
-        "username": "admin",
     },
-    "H3C 交换机 (SSH)": {
-        "name": "H3C交换机",
-        "protocol": "SSH",
-        "host": "",
-        "port": 22,
-        "username": "admin",
+    "Telnet 连接": {
+        "protocol": "Telnet",
+        "port": 23,
     },
-    "Cisco 路由器 (SSH)": {
-        "name": "Cisco路由器",
-        "protocol": "SSH",
-        "host": "",
-        "port": 22,
-        "username": "cisco",
-    },
-    "设备 Console (串口)": {
-        "name": "Console",
+    "Console 连接": {
         "protocol": "Serial",
-        "serial_port": "COM3",
-        "baudrate": 9600,
     },
-    "设备 Console (USB转串口)": {
-        "name": "Console-USB",
-        "protocol": "Serial",
-        "serial_port": "COM4",
-        "baudrate": 115200,
+    "eNSP Pro 连接": {
+        "protocol": "eNSP",
+        "port": 8443,
     },
 }
 
@@ -113,6 +99,29 @@ TASK_TEMPLATES = [
 def get_vendor_commands(vendor: str) -> dict:
     """按厂商返回常用命令，未知厂商回退到 h3c"""
     return VENDOR_COMMANDS.get((vendor or "").lower(), VENDOR_COMMANDS["h3c"])
+
+
+# 巡检绝不能改设备配置：这几条要剔掉（用户 2026-10-17：巡检要"自动的调用相关的模板"）
+PATROL_SKIP_LABELS = ("进入配置视图", "保存配置")
+
+
+def get_patrol_commands(vendor: str) -> list:
+    """按厂商返回**巡检用**的只读命令（show/display 那几条）"""
+    vendor = (vendor or "").lower()
+    if vendor not in VENDOR_COMMANDS:
+        return []                       # 认不出厂家就不猜，交给用户手动选模板
+    return [command for label, command in VENDOR_COMMANDS[vendor].items()
+            if label not in PATROL_SKIP_LABELS]
+
+
+def get_patrol_commands_for(vendors) -> list:
+    """多台不同厂家的设备一起巡检：按厂家顺序合并，命令去重"""
+    merged: list = []
+    for vendor in vendors or []:
+        for command in get_patrol_commands(vendor):
+            if command not in merged:
+                merged.append(command)
+    return merged
 
 
 # ======================================================================

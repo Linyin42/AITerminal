@@ -1,0 +1,64 @@
+{
+  "list": {
+    "chains": [],
+    "groups": {
+      "dead": [],
+      "ok": [],
+      "questions": [],
+      "wrong": []
+    },
+    "hits": [],
+    "markdown": "# 使用总结（本次会话）\n\n## 我问过的问题（0）\n\n## 命令写错（0）\n\n## 疑似不通（0）\n\n## 可用示例（0）\n",
+    "state": {
+      "active": true,
+      "aiWindowLeft": 0,
+      "chains": 0,
+      "counts": {
+        "dead": 0,
+        "ok": 0,
+        "question": 0,
+        "wrong": 0
+      },
+      "logDir": "C:\\Users\\linyin\\AppData\\Local\\Temp\\ait_usage_dto_fake\\AITerminal\\usage-log",
+      "monitor": true,
+      "reason": "monitor",
+      "todayFile": "C:\\Users\\linyin\\AppData\\Local\\Temp\\ait_usage_dto_fake\\AITerminal\\usage-log\\2026-10-03.md",
+      "total": 0
+    }
+  },
+  "list_fields": [
+    "chains",
+    "groups",
+    "hits",
+    "markdown",
+    "state"
+  ],
+  "note": "S4 等价门槛基线：固定输入=全新假 APPDATA（空 usage-log）。搬运后旧字段必须 0 差异。",
+  "state": {
+    "active": true,
+    "aiWindowLeft": 0,
+    "chains": 0,
+    "counts": {
+      "dead": 0,
+      "ok": 0,
+      "question": 0,
+      "wrong": 0
+    },
+    "logDir": "C:\\Users\\linyin\\AppData\\Local\\Temp\\ait_usage_dto_fake\\AITerminal\\usage-log",
+    "monitor": true,
+    "reason": "monitor",
+    "todayFile": "C:\\Users\\linyin\\AppData\\Local\\Temp\\ait_usage_dto_fake\\AITerminal\\usage-log\\2026-10-03.md",
+    "total": 0
+  },
+  "state_fields": [
+    "active",
+    "aiWindowLeft",
+    "chains",
+    "counts",
+    "logDir",
+    "monitor",
+    "reason",
+    "todayFile",
+    "total"
+  ]
+}

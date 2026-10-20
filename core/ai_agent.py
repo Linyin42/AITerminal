@@ -8,6 +8,7 @@ from typing import List, Dict, Optional
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from .llm import LLMClient, LLMError, provider_defaults, PROVIDERS
+from .knowledge import EXPERIENCE_CATEGORY
 
 try:
     import anthropic  # noqa: F401  （保留：旧配置的兼容判断）
@@ -21,14 +22,31 @@ DANGEROUS_PATTERNS = [
     r'\bundo\s+all\b',
     r'\breset\s+saved-configuration\b',
     r'\breboot\b',
+    # 2026-10-19 真机测试补：锐捷（RGOS）/ Cisco 的重启命令是 reload，不是 reboot，
+    # 只列 reboot 会让"reload"和"reload in 5"直接放行。
+    r'\breload\b',
     r'\bshutdown\b',
     r'\bwrite\s+erase\b',
     r'\bfactory-reset\b',
     r'\brestore\s+factory\b',
     r'\b(no)\s+interface\b',
     r'\bundo\s+interface\b',
+    # 2026-10-20 AI 联调补：删除"整段对象"同样是破坏性操作。
+    # 起因：真机探针喂 `no vlan 100` 判为安全 —— AI 生成这一条就能把整个 VLAN
+    # 连同其下所有端口配置一起抹掉。只拦删对象（VLAN / ACL / 路由 / 路由进程），
+    # 不拦日常改配置：`no shutdown` 已被 _SAFE_SHUTDOWN_RE 摘掉，
+    # `no ip address` / `no description` 这类仍然放行（探针里有对应用例）。
+    r'\b(no|undo)\s+(vlan|acl|port-group)\b',
+    r'\b(no|undo)\s+ip\s+route\b',
+    r'\b(no|undo)\s+router\s+\w+',
+    r'\bclear\s+configuration\b',
 ]
 _DANGEROUS_RE = re.compile('|'.join(DANGEROUS_PATTERNS), re.IGNORECASE)
+
+#: 取反写法是"恢复接口"，不是关接口：华为/H3C 写 undo shutdown，锐捷/Cisco 写 no shutdown。
+#: 2026-10-19 真机测试补：这两个以前被 \bshutdown\b 误判成危险命令，
+#: 导致 AI 建议"恢复某接口"时被安全策略挡住。
+_SAFE_SHUTDOWN_RE = re.compile(r'\b(?:undo|no)\s+shutdown\b', re.IGNORECASE)
 
 
 # 内置系统提示词（可在界面"工具 → 编辑系统提示词"里覆盖）
@@ -101,6 +119,41 @@ SEARCH: <检索关键词>
 """
 
 
+# 经验总结提示词：把一轮交互压成一条"成功点 / 踩坑点"记录，供以后快速匹配
+EXPERIENCE_SYSTEM_PROMPT = """你在帮网络工程师归档"运维经验"，输入是刚刚发生的一轮交互。
+
+请输出一段简短的中文 Markdown（不超过 200 字），严格按下面的小标题：
+- **需求**：用户想要什么（一句话）
+- **有效做法**：这次哪些命令/思路是对的、确实解决了问题
+- **踩坑**：哪些命令报错、输出异常、走了弯路（没有就写"无"）
+- **下次可复用**：以后遇到同类需求，直接可用的命令或顺序
+
+要求：
+1. 只写有信息量的内容，不要复述原文，不要客套话
+2. 命令保持原样放在反引号里，方便以后检索
+3. 如果这一轮没有任何值得归档的信息（例如只是闲聊、或没有任何设备操作），
+   只输出一行: SKIP
+"""
+
+
+# 整理导入的产品文档：出一份技术解释 + 一份命令清单
+DOCUMENT_DIGEST_SYSTEM_PROMPT = """你在整理网络设备厂商文档，成果供运维人员查阅、并用于命令自动补全。
+
+输入可能包含两部分：从文档里粗筛出来的命令行候选、以及文档正文摘录。
+
+请严格按下面两个小标题输出：
+## 技术解释
+用中文讲清这份文档涉及的关键概念、工作机制、适用条件与注意事项，300 字以内。
+如果文档主要是命令参考，就说明这些命令按用途怎么分类。
+
+## 命令
+用一个 ``` 代码块列出**文档里确实出现**、且可以直接在设备上敲的命令：
+1. 每行一条，只写命令本身；去掉参数占位符（如 <ip-address>、interface-name）和示例参数
+2. 不要凭记忆补充文档里没有的命令
+3. 去掉重复项，最多 80 条
+"""
+
+
 # 匹配 AI 提出的检索请求
 _SEARCH_RE = re.compile(r'^\s*SEARCH\s*[:：]\s*(.+?)\s*$', re.IGNORECASE | re.MULTILINE)
 
@@ -165,6 +218,7 @@ class AIAgent(QObject):
         self.knowledge_max_chars = 4000
         self.last_local_hits: List[dict] = []
         self.last_lookup_sources: List[dict] = []
+        self.last_experience_hits: List[dict] = []   # 本轮参考到的历史经验
 
     # ------------------------------------------------------------ 客户端
     def set_provider(self, provider: str, api_key: str = None,
@@ -204,7 +258,8 @@ class AIAgent(QObject):
 
     # ------------------------------------------------------------ 对话式交互
     def converse(self, user_message: str, device_output: str = "",
-                 task: str = "", max_tokens: int = 900):
+                 task: str = "", max_tokens: int = 900,
+                 experience: str = ""):
         """
         对话式一轮：用户自然语言 → AI 说明 + 命令计划
 
@@ -212,6 +267,7 @@ class AIAgent(QObject):
             user_message:   用户这条消息（自然语言）
             device_output:  当前设备终端输出（作为背景上下文）
             task:          当前任务描述（可选）
+            experience:     命中的历史经验（可选，只用于本轮，不写进对话历史）
         返回:
             (text, commands)
             text:      AI 的口头说明（已去掉代码块标记）
@@ -227,6 +283,15 @@ class AIAgent(QObject):
 
         self.context.append({"role": "user", "content": content})
         messages = self.context[-20:]
+        if experience:
+            # 历史经验只在这一轮发给模型、不写进上下文：否则后面每轮都会
+            # 把它们重新带一遍，白烧 token
+            messages = messages[:-1] + [{
+                "role": "user",
+                "content": content
+                + "\n\n以下是在这台设备上积累的历史经验（成功做法 / 踩过的坑），"
+                  "请优先沿用有效的做法、避开踩坑点：\n" + experience,
+            }]
 
         try:
             reply = self.llm.chat(
@@ -526,6 +591,132 @@ class AIAgent(QObject):
             )
         return "\n\n".join(parts)[:self.knowledge_max_chars]
 
+    # ------------------------------------------------------------ 历史经验
+    def experience_context(self, query: str, top_k: int = 3) -> str:
+        """
+        检索以前归档的「经验总结」（哪些做法有效、踩过哪些坑）
+
+        命中时返回可回填给模型的文本，同时把命中列表记到
+        `last_experience_hits`，供界面提示"已参考 N 条历史经验"。
+        纯本地检索，不调用大模型，所以很快。
+        """
+        self.last_experience_hits = []
+        kb = self.knowledge_base
+        if kb is None or not getattr(kb, "enabled", True):
+            return ""
+        try:
+            hits = kb.search_category(query, EXPERIENCE_CATEGORY, top_k)
+        except Exception:
+            return ""
+        if not hits:
+            return ""
+
+        self.last_experience_hits = hits
+        parts = []
+        for index, hit in enumerate(hits, start=1):
+            parts.append(f"[历史经验{index}] {hit['source']}\n{hit['text']}")
+        return "\n\n".join(parts)[:self.knowledge_max_chars]
+
+    def summarize_experience(self, user_message: str, reply_text: str = "",
+                             commands=None, device_output: str = "",
+                             device: str = "", vendor: str = "") -> str:
+        """
+        把一轮交互整理成一条「经验总结」（有效做法 / 踩坑点）
+
+        返回 Markdown 正文；没什么可归档或调用失败时返回空字符串，
+        调用方静默跳过即可（属于后台整理，不该打扰用户）。
+        """
+        parts = [f"用户需求: {(user_message or '').strip()}"]
+        if device:
+            parts.append(f"设备: {device}")
+        if vendor and vendor != "unknown":
+            parts.append(f"厂商: {vendor}")
+        if (reply_text or "").strip():
+            parts.append(f"AI 给出的建议:\n{reply_text.strip()}")
+        if commands:
+            parts.append("AI 生成的命令:\n" + "\n".join(str(c) for c in commands))
+        if (device_output or "").strip():
+            parts.append(f"设备当时的输出（含之前命令的结果）:\n{device_output[-3000:]}")
+
+        try:
+            reply = self.llm.chat(
+                system=EXPERIENCE_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": "\n\n".join(parts)}],
+                max_tokens=500,
+                temperature=0.2,
+            ).strip()
+        except Exception:
+            return ""
+        # 模型判断没什么值得归档时会输出 SKIP
+        if not reply or reply.upper().startswith("SKIP"):
+            return ""
+        return reply
+
+    @staticmethod
+    def parse_command_lines(reply: str, limit: int = 20) -> List[str]:
+        """
+        从模型回复里挑出命令行
+
+        模型有时仍会带编号、项目符号或代码块围栏，这里一并清掉；
+        含中文的行（说明文字）直接丢弃。
+        """
+        commands: List[str] = []
+        for raw in (reply or "").splitlines():
+            stripped = raw.strip()
+            # 先判围栏再剥反引号：否则 "```text" 会被剥成 "text" 当成命令
+            if not stripped or stripped.startswith("```"):
+                continue
+            line = stripped.strip('`').strip()
+            line = re.sub(r'^(\d+[.、)]|[-*•>])\s*', '', line).strip()
+            if not line or len(line) > 80:
+                continue
+            if any('\u4e00' <= ch <= '\u9fff' for ch in line):
+                continue
+            if line not in commands:
+                commands.append(line)
+            if len(commands) >= limit:
+                break
+        return commands
+
+    # ------------------------------------------------------------ 整理文档
+    def digest_document(self, name: str, text: str, candidates=None,
+                        doc_chars: int = 4000, limit: int = 80):
+        """
+        把一份导入的产品文档整理成（技术解释, 命令清单）
+
+        参数:
+            name:       文档名（给模型当上下文）
+            text:       文档正文（只取开头 doc_chars 字符，控制额度）
+            candidates: 从正文粗筛出的命令行候选（find_command_candidates 的结果）
+        返回:
+            (explanation, commands)，整理失败时返回 ("", [])
+        """
+        parts = [f"文档名: {name}"]
+        if candidates:
+            parts.append("从文档里粗筛出的命令行候选（需要你甄别）:\n"
+                         + "\n".join(list(candidates)[:300]))
+        if text and text.strip():
+            parts.append("文档正文摘录:\n" + text[:doc_chars])
+
+        try:
+            reply = self.llm.chat(
+                system=DOCUMENT_DIGEST_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": "\n\n".join(parts)}],
+                max_tokens=1200,
+                temperature=0.2,
+            ).strip()
+        except Exception:
+            return "", []
+        return self.split_digest(reply, limit)
+
+    @staticmethod
+    def split_digest(reply: str, limit: int = 80):
+        """把整理结果拆成（技术解释, 命令列表）"""
+        text = reply or ""
+        match = re.search(r'##\s*技术解释\s*(.*?)(?=##\s*命令|```|$)', text, re.S)
+        explanation = (match.group(1) if match else "").strip()
+        return explanation, AIAgent.parse_command_lines(text, limit)
+
     def lookup_context(self, query: str, max_chars: int = 6000) -> str:
         """
         资料检索：先本地资料库，再联网检索，返回合并后的上下文
@@ -632,8 +823,14 @@ class AIAgent(QObject):
     # ------------------------------------------------------------ 工具方法
     @staticmethod
     def is_dangerous(command: str) -> bool:
-        """判断命令是否命中危险操作黑名单"""
-        return bool(_DANGEROUS_RE.search(command or ""))
+        """判断命令是否命中危险操作黑名单
+
+        `undo shutdown` / `no shutdown` 是恢复接口（安全），先把它们从待判文本里摘掉，
+        免得被 shutdown 规则误伤；同一条串里其它危险命令仍然照常命中
+        （如 "undo shutdown\\nreboot" 里的 reboot）。
+        """
+        text = _SAFE_SHUTDOWN_RE.sub(" ", command or "")
+        return bool(_DANGEROUS_RE.search(text))
 
     def filter_commands(self, reply: str, block_dangerous: bool = True):
         """
@@ -653,11 +850,47 @@ class AIAgent(QObject):
             cmd = cmd.strip('`').strip()
             if not cmd or cmd.upper() in ("DONE", "ASK"):
                 continue
+            # 只收"看着像命令"的行：必须以 **ASCII 字母/数字**开头。
+            # 模型回复里常夹说明文字（"可以按下面三步配置："、"⚠ 风险：…"），不滤的话
+            # 它们会被 `is_config_command` 判成配置类命令、一路打到终端，用户得对着一条
+            # 中文"命令"去核对下发（实测：这两行原样出现在 commands 里，且都判 True）。
+            # ⚠ 不用"含中文就丢"：命令里合法地会有中文（如 `description 销售部`），
+            # 那种行都以 ASCII 命令字开头。也**不要**顺手加长度上限 —— 本接口要允许
+            # 长命令（ACL 规则、描述超过 80 字符很常见；`parse_command_lines` 才有 80 上限）。
+            if not (cmd[:1].isascii() and cmd[:1].isalnum()):
+                continue
             if block_dangerous and self.is_dangerous(cmd):
                 blocked.append(cmd)
             else:
                 commands.append(cmd)
         return commands, blocked
+
+    def review_reply(self, reply: str, block_dangerous: bool = True, limit: int = 20):
+        """模型回复 → **结构化**命令审查（逐条风险标注 + 是否必须确认）。
+
+        与 `filter_commands()` 的关系：老接口只做"危险黑名单二分"，返回二元组，且
+        **不会**滤掉中文说明行（模型回复里的解释文字会被当成命令）；这里改用
+        `parse_command_lines()` 取命令行（它本来就负责丢中文、剥编号/围栏），再套上
+        危险黑名单，最后交给 `core.safety.review()` 逐条分级。
+
+        返回: core.safety.review() 的 dict，外加
+            blocked: [被危险黑名单拦下的命令]
+            summary: 会追加"已拦截 N 条危险命令"
+        """
+        from core import safety                      # noqa: WPS433（避免循环导入）
+
+        commands, blocked = [], []
+        for cmd in AIAgent.parse_command_lines(reply, limit=limit):
+            if block_dangerous and self.is_dangerous(cmd):
+                blocked.append(cmd)
+            else:
+                commands.append(cmd)
+
+        result = safety.review(commands)
+        result["blocked"] = blocked
+        if blocked:
+            result["summary"] += f"｜已拦截 {len(blocked)} 条危险命令：{'、'.join(blocked)}"
+        return result
 
     @staticmethod
     def _err_text(e: Exception) -> str:

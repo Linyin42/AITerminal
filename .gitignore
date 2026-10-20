@@ -5,22 +5,57 @@ __pycache__/
 build/
 dist/
 .venv/
+.venv-train/
+.venv-linux/
 venv/
 env/
 
 # 历史构建归档（保留在本地但不入 git）
 old_builds/
 
-# PyInstaller
+# PyInstaller：默认忽略全部 .spec，只放行项目自己的两份
 *.spec
+!build.spec
+!AITerminal-linux.spec
 
 # 环境与密钥
 .env
+*.pem
+*.key
+settings.json
 
 # 编辑器
 .idea/
 .vscode/
 *.swp
 
-# 日志
+# 日志与临时产物
 *.log
+*.tmp
+*.bak
+*.bak_*
+*.bak-before-*
+*.orig
+*.rej
+
+# 数据/资产（体积大，按交付约定放在仓库外）
+knowledge/
+design/
+cpp/
+data_tools/
+local_llm/*.log
+local_llm/*.gguf
+local_llm/*.pyc
+tools/*.jsonl
+tools/*.jsonl.summary.json
+tools/*.zip
+*.zip
+
+# 内部过程文档（不对外）
+_notes/
+_HANDOFF.md
+HANDOFF-NEXT-AI.md
+项目现状与交接.md
+layout_preview.png
+
+*.bak-*

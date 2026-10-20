@@ -7,3 +7,9 @@ python-dotenv>=1.0.0
 
 # 本地资料库解析 PDF 命令手册需要（其余格式 txt/md/docx/xlsx/pptx/html 用标准库解析）
 pypdf>=4.0.0
+
+# eNSP Pro 连接器（core/ensp_client.py、core/ensp_connector.py）直接 import；
+# Windows 本机是别的包传递带进来的，干净环境打包会 ModuleNotFoundError。
+requests>=2.31.0
+urllib3>=2.0.0
+websocket-client>=1.7.0

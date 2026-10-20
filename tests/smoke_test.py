@@ -19,7 +19,8 @@ from PyQt6.QtWidgets import QApplication  # noqa: E402
 from PyQt6.QtCore import Qt  # noqa: E402
 
 from core.connector import BaseConnector  # noqa: E402
-from core.terminal import TerminalBuffer, detect_vendor, clean_prompt_tail  # noqa: E402
+from core.terminal import (  # noqa: E402
+    TerminalBuffer, detect_vendor, clean_prompt_tail, looks_like_prompt)
 from core.ai_agent import AIAgent  # noqa: E402
 from core.session import SessionManager, SessionInfo  # noqa: E402
 from core import telnet_connector as telnet_mod  # noqa: E402
@@ -132,6 +133,1286 @@ def test_terminal_buffer():
 
     tail = clean_prompt_tail("display version\nVRP V800\n<H3C>")
     check("去除尾部提示符", tail == "display version\nVRP V800", repr(tail))
+
+    check("提示符识别: Ruijie>", looks_like_prompt("Ruijie>") is True)
+    check("提示符识别: <H3C>", looks_like_prompt("<H3C>") is True)
+    check("提示符识别: 输出行不算", looks_like_prompt("GigabitEthernet0/1 is up") is False)
+    check("提示符识别: 空行不算", looks_like_prompt("") is False)
+
+
+def test_terminal_input_tracking():
+    """输入缓冲要跟着终端当前行同步（Tab 补全、设备重画），且不被设备擦掉"""
+    from PyQt6.QtGui import QKeyEvent
+    from ui.terminal_widget import TerminalWidget
+
+    def press(widget, key, text="", mods=Qt.KeyboardModifier.NoModifier):
+        event = QKeyEvent(QKeyEvent.Type.KeyPress, key, mods, text)
+        widget.handle_key_press(event)
+
+    widget = TerminalWidget(1)
+    # 光标要像 Linux 终端那样看得见：只读的 QTextEdit 不画插入光标，所以不能只读
+    check("显示区: 非只读（否则没有插入光标）",
+          widget.text_edit.isReadOnly() is False)
+    check("显示区: 光标为整块", widget.text_edit.cursorWidth() > 1,
+          str(widget.text_edit.cursorWidth()))
+    check("终端: 底部回显栏已移除", not hasattr(widget, "input_bar"))
+    widget.append_output("Ruijie#")          # 设备打出提示符
+    for ch in "en":                          # 逐字符输入
+        press(widget, Qt.Key.Key_E, ch)
+    check("输入缓冲: 输入时记录", widget.command_buffer == "en",
+          repr(widget.command_buffer))
+
+    # 粘贴/删除不能往显示区里塞字，否则屏上会出现设备没收到的"幽灵文本"
+    from PyQt6.QtWidgets import QApplication
+    QApplication.clipboard().setText("幽灵命令")
+    before = widget.text()
+    press(widget, Qt.Key.Key_V, "", Qt.KeyboardModifier.ControlModifier)
+    check("显示区: 粘贴被挡掉", widget.text() == before, repr(widget.text()))
+    press(widget, Qt.Key.Key_Delete)
+    check("显示区: Delete 不改内容", widget.text() == before, repr(widget.text()))
+
+    # 关键回归：设备还没回显我们敲的字符就按了 Tab，
+    # 补全后设备整行重画 —— 缓冲必须跟到"enable"（以前会停在"en"）
+    press(widget, Qt.Key.Key_Tab)
+    widget.append_output("\nRuijie#enable")
+    check("输入缓冲: Tab 补全后就地同步", widget.command_buffer == "enable",
+          repr(widget.command_buffer))
+
+    # 回车：缓冲清空并进历史
+    press(widget, Qt.Key.Key_Return)
+    check("输入缓冲: 回车后清空", widget.command_buffer == "",
+          repr(widget.command_buffer))
+    check("输入缓冲: 历史已记录", widget.command_history == ["enable"],
+          repr(widget.command_history))
+    widget.close()
+
+    # 设备端补全（整行当普通内容追加过来，不触发 \r 重写）：缓冲也要跟上
+    widget2 = TerminalWidget(2)
+    widget2.append_output("Ruijie#")
+    for ch in "sh":
+        press(widget2, Qt.Key.Key_S, ch)
+        widget2.append_output(ch)            # 设备逐字符回显
+    widget2.append_output("ow version")       # 设备补全了后半段
+    check("输入缓冲: 设备端追加补全也同步",
+          widget2.command_buffer == "show version", repr(widget2.command_buffer))
+    widget2.close()
+
+    # 按 Tab 后的窗口期内，普通输出（不以换行开头）不能被当成"整行重画"
+    # 而把当前行擦掉 —— 连打 Tab 时窗口一直开着，擦一次屏就花了
+    widget3 = TerminalWidget(3)
+    widget3.append_output("Ruijie#")
+    press(widget3, Qt.Key.Key_Tab)
+    widget3.append_output(" show")
+    check("Tab 窗口: 普通输出不清空当前行",
+          widget3.screen.last_line() == "Ruijie# show",
+          repr(widget3.screen.last_line()))
+    check("Tab 窗口: 普通输出仍显示在屏上",
+          widget3.text().endswith("Ruijie# show"), repr(widget3.text()))
+    widget3.close()
+
+    # 关键回归（真实设备行为）：按 Tab 没补出东西，设备只重打了提示符，
+    # 把当前行改写成"只有提示符" —— 绝不能因此把用户已输入的内容擦掉，
+    # 否则屏幕上明明有字、缓冲却空了，按回车等于什么都没执行
+    widget4 = TerminalWidget(4)
+    widget4.append_output("Ruijie#")
+    for ch in "en":
+        press(widget4, Qt.Key.Key_E, ch)
+        widget4.append_output(ch)              # 设备回显
+    press(widget4, Qt.Key.Key_Tab)
+    widget4.append_output("\rRuijie#")         # 设备整行重写，内容只剩提示符
+    check("输入缓冲: 设备重打提示符不擦掉已输入",
+          widget4.command_buffer == "en", repr(widget4.command_buffer))
+    widget4.close()
+
+    # 点终端任意位置：插入光标只该待在输入位置（末尾）。QTextEdit 默认"点哪
+    # 光标就去哪"，屏幕上于是多出一个和输入毫无关系、还一直闪的块状光标。
+    from PyQt6.QtCore import QEvent, QPointF
+    from PyQt6.QtGui import QMouseEvent, QTextCursor
+    widget5 = TerminalWidget(5)
+    widget5.append_output("Ruijie#show version")
+
+    def mouse(kind, x=6, y=3):
+        pos = QPointF(x, y)
+        return QMouseEvent(kind, pos, pos, Qt.MouseButton.LeftButton,
+                           Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+
+    widget5.text_edit.mousePressEvent(mouse(QEvent.Type.MouseButtonPress))
+    clicked_at = widget5.text_edit.textCursor().position()   # 基类会把光标挪到点击处
+    widget5.text_edit.mouseReleaseEvent(mouse(QEvent.Type.MouseButtonRelease))
+    tail_pos = len(widget5.text_edit.toPlainText())
+    check("显示区: 单击任意位置后光标回到输入位置",
+          widget5.text_edit.textCursor().position() == tail_pos,
+          f"按下后被挪到 {clicked_at}（点哪去哪就是原始缺陷），"
+          f"松开后应回到 {tail_pos}，实际 {widget5.text_edit.textCursor().position()}")
+
+    cursor = widget5.text_edit.textCursor()
+    cursor.setPosition(0)
+    cursor.setPosition(6, QTextCursor.MoveMode.KeepAnchor)
+    widget5.text_edit.setTextCursor(cursor)
+    widget5.text_edit.pin_caret_to_input()
+    check("显示区: 正在选中输出时不抢光标（保留可复制）",
+          widget5.text_edit.textCursor().hasSelection())
+
+    widget5.text_edit.mouseDoubleClickEvent(mouse(QEvent.Type.MouseButtonDblClick))
+    widget5.text_edit.mouseReleaseEvent(mouse(QEvent.Type.MouseButtonRelease))
+    check("显示区: 双击选词没被「拉回末尾」破坏",
+          widget5.text_edit.textCursor().hasSelection(),
+          repr(widget5.text_edit.textCursor().selectedText()))
+    widget5.close()
+
+
+def test_terminal_backspace_keeps_device_echo():
+    """退格只删得动用户自己敲的那一段，设备回显的内容一个字符都不能少
+
+    2026-10-19 用户反馈：在提示符上连按退格，屏上的提示符被一个字符一个字符
+    吃掉 —— "Ruijie(config)#" → "Ruijie(con" → "Ruijie(co"。
+    真机（锐捷 / 华为）会把退格原样回显成 "\\b \\b"，本地照着"\\b 删一个字符"
+    执行，就把设备**已经打出来**的提示符退掉了。
+    """
+    from PyQt6.QtGui import QKeyEvent
+    from ui.terminal_widget import TerminalWidget
+
+    def press(widget, key, text="", mods=Qt.KeyboardModifier.NoModifier):
+        event = QKeyEvent(QKeyEvent.Type.KeyPress, key, mods, text)
+        widget.handle_key_press(event)
+
+    # ① 设备回显路径（本地回显关，真机就是这样）：设备把自己回显的退格发回来
+    widget = TerminalWidget(11)
+    widget.append_output("Ruijie#conf terminal\r\n")
+    widget.append_output("Ruijie(config)#")
+    prompt_line = widget.screen.last_line()
+    for _ in range(5):
+        widget.append_output("\b \b")           # 真机对退格的回显
+    check("退格: 设备回显的退格删不动提示符",
+          widget.screen.last_line() == prompt_line,
+          f"期望 {prompt_line!r}，实际 {widget.screen.last_line()!r}")
+    check("退格: 屏幕上提示符一个字符没少",
+          widget.text().rstrip("\n").endswith(prompt_line),
+          repr(widget.text()[-30:]))
+
+    # ② 用户自己敲的字，退格仍然要删得掉（别保护过头 → "退格删不动"）
+    for ch in "abc":
+        press(widget, Qt.Key.Key_A, ch)
+        widget.append_output(ch)                # 设备回显
+    for _ in range(2):
+        press(widget, Qt.Key.Key_Backspace)
+        widget.append_output("\b \b")           # 设备回显退格
+    check("退格: 用户输入删得掉（没保护过头）",
+          widget.screen.last_line() == prompt_line + "a",
+          repr(widget.screen.last_line()))
+    check("退格: 输入缓冲跟着退", widget.command_buffer == "a",
+          repr(widget.command_buffer))
+    widget.close()
+
+    # ③ 输入行本来就是空的：一个字节都别往下发。真机会把退格照原样回显，
+    #    发出去就等于让设备去退它自己打的提示符
+    widget2 = TerminalWidget(12)
+    widget2.append_output("Ruijie(config)#")
+    sent = []
+    widget2.raw_input.connect(sent.append)
+    before = widget2.text()
+    for _ in range(3):
+        press(widget2, Qt.Key.Key_Backspace)
+    check("退格: 输入行空时不往设备发退格", sent == [], repr(sent))
+    check("退格: 输入行空时屏幕不动", widget2.text() == before, repr(before[-20:]))
+    widget2.close()
+
+    # ④ 本地回显路径（设备不回显）：显示区也不能被退进提示符里
+    widget3 = TerminalWidget(13)
+    widget3.set_local_echo(True)
+    widget3.append_output("Ruijie(config)#")
+    for ch in "ab":
+        press(widget3, Qt.Key.Key_A, ch)
+    for _ in range(5):                          # 比输进去的字符多按 3 次
+        press(widget3, Qt.Key.Key_Backspace)
+    check("退格: 本地回显也不删设备回显的提示符",
+          widget3.screen.last_line() == "Ruijie(config)#",
+          repr(widget3.screen.last_line()))
+    check("退格: 本地回显下显示区提示符完整",
+          widget3.text().endswith("Ruijie(config)#"), repr(widget3.text()[-24:]))
+    check("退格: 本地回显下输入已清空",
+          widget3.command_buffer == "", repr(widget3.command_buffer))
+    widget3.close()
+
+
+def test_terminal_backspace_without_device_echo():
+    """设备**不回显退格**时，退格必须本地把用户敲的字符抹掉
+
+    2026-10-19 用户反馈（华为 S12708，截图里一屏 "<JianKong_Core>sy"）："无法删除
+    输入的内容"。华为 VRP 这类设备会回显输入的字符、却**不回显退格**（终端该自己
+    擦）；只有当设备既不回显输入、也不回显退格时（local_echo=on）才做了本地擦除，
+    于是这种"只回显输入"的设备上，退格发下去了、屏幕上那个字符永远留着。
+    """
+    from PyQt6.QtGui import QKeyEvent
+    from ui.terminal_widget import TerminalWidget
+
+    def press(widget, key, text="", mods=Qt.KeyboardModifier.NoModifier):
+        event = QKeyEvent(QKeyEvent.Type.KeyPress, key, mods, text)
+        widget.handle_key_press(event)
+
+    widget = TerminalWidget(21)
+    widget.append_output("<JianKong_Core>")              # 设备回显提示符
+    for ch in "sy":                                       # 设备逐个回显输入的字符
+        press(widget, Qt.Key.Key_S, ch)
+        widget.append_output(ch)
+    check("退格: 设备回显输入后缓冲同步", widget.command_buffer == "sy",
+          repr(widget.command_buffer))
+
+    press(widget, Qt.Key.Key_Backspace)                   # 设备**不回显**这次退格
+    check("退格: 设备不回显退格时也要删掉屏上的字符",
+          widget.screen.last_line() == "<JianKong_Core>s",
+          f"实际 {widget.screen.last_line()!r}（'y' 没被抹掉就是用户说的"
+          f"『无法删除输入的内容』）")
+    check("退格: 显示区同步删掉（不是只改缓冲）",
+          widget.text().endswith("<JianKong_Core>s"), repr(widget.text()[-24:]))
+    check("退格: 缓冲同步", widget.command_buffer == "s", repr(widget.command_buffer))
+    widget.close()
+
+    # 一路退到空：提示符一个字符都不能少
+    widget2 = TerminalWidget(22)
+    widget2.append_output("<JianKong_Core>")
+    for ch in "sy":
+        press(widget2, Qt.Key.Key_S, ch)
+        widget2.append_output(ch)
+    for _ in range(4):                                    # 比输入的多按 2 次
+        press(widget2, Qt.Key.Key_Backspace)
+    check("退格: 退到空行后提示符完整",
+          widget2.screen.last_line() == "<JianKong_Core>"
+          and widget2.text().endswith("<JianKong_Core>"),
+          repr(widget2.screen.last_line()))
+    check("退格: 退到空行后缓冲为空", widget2.command_buffer == "",
+          repr(widget2.command_buffer))
+    widget2.close()
+
+
+def test_terminal_local_echo_no_duplicate():
+    """设备本身会回显时，本地回显绝不能和它叠加成双字
+
+    2026-10-19 用户反馈（锐捷 S2928G-E console）："输入命令会重复，例如输入 s
+    会显示为 ss，自动补全也是如此"。会话日志证明设备只收到**一个** s —— 多出来
+    那个是本地的：``check_console_echo`` 在连上 1.7s 后用"设备有没有吐过字符"猜
+    它回不回显，锐捷对唤醒回车**不重打提示符**，于是被误判成"设备零回显"、自动
+    打开了本地回显，之后每个字符都被画两遍（设备一遍 + 本地一遍）。
+
+    根因是**靠猜**：猜错一次，整个会话的双字就改不回来。正确做法是让设备自己
+    作证 —— 本地回显过的字符，若在很短时间内被设备原样回显回来，就说明设备会
+    回显：立刻撤掉本地回显，并把这一遍重复的字符丢掉（用户看到的就是一个字）。
+    """
+    from PyQt6.QtGui import QKeyEvent
+    from ui.terminal_widget import TerminalWidget
+
+    def press(widget, key, text="", mods=Qt.KeyboardModifier.NoModifier):
+        event = QKeyEvent(QKeyEvent.Type.KeyPress, key, mods, text)
+        widget.handle_key_press(event)
+
+    widget = TerminalWidget(23)
+    widget.append_output("Ruijie(config)#")     # 设备提示符
+    widget.set_local_echo(True)                  # 被误判成"设备不回显"后的状态
+
+    press(widget, Qt.Key.Key_S, "s")
+    check("双字: 本地回显先画出用户敲的字", widget.screen.last_line().endswith("s"),
+          repr(widget.screen.last_line()))
+
+    widget.append_output("s")                     # 设备也把它回显回来
+    check("双字: 设备回显同一字符时不能变成 'ss'",
+          widget.screen.last_line() == "Ruijie(config)#s",
+          f"实际 {widget.screen.last_line()!r}（'ss' 就是用户说的『输入命令会重复』）")
+    check("双字: 显示区也不能多出那个字符",
+          widget.text().endswith("Ruijie(config)#s"), repr(widget.text()[-20:]))
+    check("双字: 一旦设备证明会回显，就自动撤掉本地回显",
+          widget.local_echo is False, f"local_echo={widget.local_echo}")
+    check("双字: 撤掉后缓冲不多不少", widget.command_buffer == "s",
+          repr(widget.command_buffer))
+
+    # 之后继续敲：设备回显照常,屏幕只出现一份
+    press(widget, Qt.Key.Key_H, "h")
+    widget.append_output("h")
+    check("双字: 后续字符同样只显示一份",
+          widget.screen.last_line() == "Ruijie(config)#sh",
+          repr(widget.screen.last_line()))
+    check("双字: 后续字符缓冲正确", widget.command_buffer == "sh",
+          repr(widget.command_buffer))
+    widget.close()
+
+    # 真·不回显的设备（本地回显是它唯一能看见字的原因）不能被误判成"会回显"
+    widget2 = TerminalWidget(24)
+    widget2.append_output("<HUAWEI>")
+    widget2.set_local_echo(True)
+    press(widget2, Qt.Key.Key_D, "d")
+    press(widget2, Qt.Key.Key_I, "i")              # 设备一个字都不回
+    check("双字: 设备不回显时本地回显必须留着",
+          widget2.local_echo is True and widget2.text().endswith("<HUAWEI>di"),
+          f"local_echo={widget2.local_echo} text={widget2.text()[-12:]!r}")
+    # 设备晚一点吐了个**以刚敲的字开头**的异步消息（不是回显），不能据此关掉本地回显
+    widget2.append_output("i am a log line\r\n")
+    check("双字: 异步日志整段不是回显，不能据此关掉本地回显",
+          widget2.local_echo is True, f"local_echo={widget2.local_echo}")
+    widget2.close()
+
+
+def test_terminal_cr_nul_not_swallowed():
+    """设备用 \\r\\x00\\r\\n 收行时，屏上必须留下正文
+
+    2026-10-19 用户反馈："回显内容有问题 没有数据 但是设备是有数据的"。
+    真机上设备给了 999 字节，控件里只剩 41 个字符（就一行 ---- More ----）：
+    H3C 每打一行都是 `文本 + \\r\\x00\\r\\n`，缓冲层把中间那个裸 \\r 当成
+    "进度条重写当前行"，于是**每一行刚打出来就被自己抹掉**。
+    """
+    from core.telnet_connector import clean_telnet_text
+    from ui.terminal_widget import TerminalWidget
+
+    comware = ("display version\r\x00\r\n"
+               "H3C Comware Software, Version 7.1.070, Release 7639P03\r\x00\r\n"
+               "Copyright (c) 2004-2023 New H3C Technologies Co., Ltd.\r\x00\r\n"
+               "H3C S7503X uptime is 8 weeks\r\x00\r\n"
+               "---- More ----")
+    # ① 读线程出口清洗后的样子：就是普通 \r\n
+    cleaned = clean_telnet_text(comware)
+    check("回显: 清洗后没有 NUL / CR NUL", "\x00" not in cleaned and "\r\x00" not in cleaned,
+          repr(cleaned[:40]))
+
+    widget = TerminalWidget(7)
+    widget.append_output(cleaned)
+    shown = widget.text()
+    check("回显: 屏上有设备正文（不是只剩分页标记）",
+          "H3C Comware" in shown and "Copyright" in shown,
+          f"实际 {len(shown)} 字符：{shown[:60]!r}")
+    check("回显: 屏上行数对得上（5 行内容都在）",
+          len([ln for ln in shown.splitlines() if ln.strip()]) >= 5,
+          f"{len([ln for ln in shown.splitlines() if ln.strip()])} 行")
+    check("回显: 分页标记仍然显示（用户在等分页时看得见）", "More" in shown)
+
+    # ② 没清洗就喂进来（别的接入方式直连控件）时，缓冲层也要自己扛住
+    raw_widget = TerminalWidget(8)
+    raw_widget.append_output(comware)
+    check("回显: 未经清洗的 CR NUL 也不会抹掉正文（缓冲层兜底）",
+          "H3C Comware" in raw_widget.text(),
+          f"实际 {len(raw_widget.text())} 字符")
+
+    # ③ 不能修过头：进度条那种"裸 CR + 可打印字符"仍只留最后一次
+    progress = TerminalWidget(9)
+    progress.append_output("下载 10%\r下载 90%")
+    check("回显: 进度条式重写仍只留最后一次",
+          progress.text().strip().endswith("下载 90%") and "10%" not in progress.text(),
+          repr(progress.text()))
+
+
+def test_console_echo_no_doubling_any_shape():
+    """console 上敲一整条命令：屏幕、缓冲、自动提示三处都不许重字
+
+    2026-10-19 用户截图（锐捷 S2928G-E console）：
+        Ruijie(config)#sshhooww
+        浮层提示：sshhooww rruunnn
+        % Incomplete command
+    即敲 "show run" 每个字符被画两遍，而且**自动提示是按错的缓冲算的**（浮层里
+    也跟着是重字）。上面的 test_terminal_local_echo_no_duplicate 只演了单个字符，
+    这里把整条命令、三种设备回显形态（逐字 / 整段 / 带换行）都过一遍，并直接测量
+    "提示浮层这次是按什么前缀算的" —— 光看屏幕对了不算数，缓冲错了提示就是错的。
+    """
+    from PyQt6.QtGui import QKeyEvent
+    from ui.terminal_widget import TerminalWidget
+
+    def key_for(ch):
+        return Qt.Key.Key_Space if ch == " " else getattr(Qt.Key, f"Key_{ch.upper()}")
+
+    def replay(shape, command):
+        widget = TerminalWidget(1201)
+        widget.append_output("Ruijie(config)#")   # 设备提示符
+        widget.set_local_echo(True)               # 旧代码误判"设备不回显"后的状态
+
+        prefixes = []
+        original = widget.dictionary.suggest
+        widget.dictionary.suggest = lambda p: (prefixes.append(p), original(p))[1]
+
+        for ch in command:
+            widget.handle_key_press(QKeyEvent(
+                QKeyEvent.Type.KeyPress, key_for(ch),
+                Qt.KeyboardModifier.NoModifier, ch))
+            if shape == "per_char":
+                widget.append_output(ch)          # 设备逐字回显（真实 console 节奏）
+        if shape == "whole":
+            widget.append_output(command)
+        elif shape == "with_crlf":
+            widget.append_output(command + "\r\n")
+
+        shown = [ln for ln in widget.text().splitlines() if ln.strip()]
+        last = shown[-1] if shown else ""
+        buffer = widget.command_buffer
+        widget.close()
+        return last, buffer, prefixes
+
+    for shape, title in (("per_char", "逐字回显"), ("whole", "整段回显"),
+                         ("with_crlf", "整段回显带换行")):
+        last, buffer, prefixes = replay(shape, "show run")
+        check(f"console重字[{title}]: 屏幕上是一条 show run（不是 sshhooww）",
+              "sshhooww" not in last and last.endswith("show run"), repr(last))
+        check(f"console重字[{title}]: 输入缓冲是 show run",
+              buffer == "show run", repr(buffer))
+        check(f"console重字[{title}]: 自动提示按原文算前缀",
+              bool(prefixes) and prefixes[-1] == "show run"
+              and all(p == "show run"[:len(p)] for p in prefixes),
+              f"最后一次前缀 {prefixes[-1] if prefixes else None!r}")
+
+
+def test_patrol_device_edit():
+    """巡检设备必须能手填 IP/协议/账号/密码
+
+    2026-10-19 用户要求："多设备巡检应该有一个编辑页面 里面填写设备 IP 选择协议
+    填写账号和密码"。原来只能"从当前会话添加/添加最近连接"，一台还没登过的设备
+    就没处填凭据 —— 结果巡检一跑全失败，用户以为巡检坏了。
+    """
+    from ui.device_edit_dialog import DeviceEditDialog
+    from ui.patrol_dialog import PatrolDialog
+
+    edit = DeviceEditDialog(None, device={"protocol": "Telnet", "host": "10.2.0.1",
+                                          "port": 23, "username": "admin",
+                                          "password": "p@ss"})
+    device = edit.get_device()
+    check("巡检设备: 编辑框带回 IP/协议/账号/密码",
+          device["host"] == "10.2.0.1" and device["protocol"] == "Telnet"
+          and device["username"] == "admin" and device["password"] == "p@ss",
+          f"{device.get('host')}/{device.get('protocol')}/{device.get('username')}")
+    check("巡检设备: 没填名字时用 IP 当名字", device["name"] == "10.2.0.1",
+          device["name"])
+
+    empty = DeviceEditDialog(None)
+    check("巡检设备: 新增默认 SSH:22",
+          empty.get_device()["protocol"] == "SSH" and empty.get_device()["port"] == 22,
+          f"{empty.get_device()['protocol']}:{empty.get_device()['port']}")
+    empty.host_input.setText("192.168.1.9")
+    empty.protocol_combo.setCurrentText("Telnet")
+    check("巡检设备: 切到 Telnet 端口自动变 23", empty.get_device()["port"] == 23,
+          str(empty.get_device()["port"]))
+
+    dialog = PatrolDialog(None, candidates=[], sessions=[])
+    headers = [dialog.table.horizontalHeaderItem(i).text()
+               for i in range(dialog.table.columnCount())]
+    check("巡检设备: 列表有密码列", headers == ["选择", "名称", "协议", "地址", "密码", "来源"],
+          f"实际 {headers}")
+
+    dialog.add_device_row({"name": "有密码", "protocol": "Telnet", "host": "10.2.0.1",
+                           "port": 23, "username": "admin", "password": "x"})
+    dialog.add_device_row({"name": "缺密码", "protocol": "Telnet", "host": "10.9.9.9",
+                           "port": 23, "username": "admin", "password": ""})
+    check("巡检设备: 密码列区分已填/未填",
+          dialog.table.item(0, 4).text() == "已填"
+          and dialog.table.item(1, 4).text() == "未填",
+          f"{dialog.table.item(0, 4).text()}/{dialog.table.item(1, 4).text()}")
+    check("巡检设备: 缺密码那行有提示", bool(dialog.table.item(1, 4).toolTip()),
+          "没有提示用户就不知道该怎么补")
+
+    dialog.replace_device(("Telnet", "10.2.0.1", None, "admin"),
+                          {"name": "改过名", "protocol": "Telnet", "host": "10.2.0.1",
+                           "port": 23, "username": "admin", "password": "new"})
+    check("巡检设备: 替换同地址设备原地更新",
+          dialog.table.item(0, 1).text() == "改过名", dialog.table.item(0, 1).text())
+    check("巡检设备: 去重键按协议/地址/用户名",
+          ("Telnet", "10.2.0.1", None, "admin") in dialog.existing_keys())
+
+    saved = {}
+    dialog.settings.set_patrol_devices = lambda devices: saved.__setitem__("d", devices)
+    dialog.settings.save = lambda: None
+    dialog.save_settings()
+    entries = saved.get("d") or []
+    check("巡检设备: 设备列表会存下来（下次不用重填）", len(entries) == 2,
+          f"{len(entries)} 台")
+    check("巡检设备: 存盘时剥掉密码", all("password" not in entry for entry in entries),
+          f"字段 {[sorted(entry) for entry in entries][:1]}")
+
+
+def test_session_connection_lost_visible():
+    """设备掉线必须在屏幕上显示出来
+
+    2026-10-19 用户反馈："设备回显的掉线 要显示出来"。之前连接器早就发出了
+    ``connection_lost``，但界面**一个地方都没接** —— 掉线后终端就此静止，
+    用户分不清是设备没反应、命令还在跑，还是已经断了。
+    """
+    from ui.main_window import MainWindow
+    from ui.session_tab import SessionTab
+
+    class FakeConnector:
+        def is_connected(self):
+            return False
+
+        def info(self):
+            return "COM5 @9600"
+
+    class FakeSession:
+        def __init__(self):
+            self.connector = FakeConnector()
+            self.protocol = "Serial"
+            self.config = {'auto_reconnect': True}
+            self.name = "假 Console"
+
+        def close_log(self):            # 收尾时 closeEvent 会挨个关会话
+            pass
+
+    window = MainWindow()
+    window.update_status = lambda: None          # 只验提示，不验状态重算
+    sid = 91
+    window.session_manager._sessions[sid] = FakeSession()
+    window.tabs[sid] = SessionTab(sid, "假 Console", "COM5 @9600")
+
+    emitted = []
+    window.session_manager.connection_lost.connect(
+        lambda s, r: emitted.append((s, r)))
+    window.session_manager._on_connection_lost(sid)
+    window.session_manager._on_connection_lost(sid)      # 读线程 + 写线程各报一次
+    check("掉线: 连接器重复报只提示一次", len(emitted) == 1, f"{emitted}")
+    check("掉线: 原因说得清楚（串口 + 会重连）",
+          bool(emitted) and "串口" in emitted[0][1] and "重连" in emitted[0][1],
+          f"{emitted}")
+
+    window.on_connection_lost(sid, emitted[0][1])
+    text = window.tabs[sid].terminal.text()
+    check("掉线: 终端里落一行『连接已断开 + 时间』", "[连接已断开" in text,
+          f"实际末尾 {text[-80:]!r}")
+    check("掉线: 状态条写明已断开",
+          "已断开" in window.tabs[sid].info_label.text(),
+          window.tabs[sid].info_label.text())
+
+    # 掉线后继续敲键盘：按键既没发出去、屏幕上也没反应，等于"键盘坏了"
+    window.on_raw_input(sid, "s")
+    window.on_raw_input(sid, "h")
+    text2 = window.tabs[sid].terminal.text()
+    check("掉线: 输入被丢弃时提示，且只提示一次",
+          text2.count("[未发送]") == 1, f"出现 {text2.count('[未发送]')} 次")
+
+    # 重连成功：状态灯要绿回来、标记要清掉，下一次掉线还能再报
+    window.on_connection_info(sid, "串口已自动重连成功")
+    check("掉线: 重连成功不能把状态灯按成红色",
+          window.tabs[sid]._last_connected is True,
+          f"_last_connected={window.tabs[sid]._last_connected}")
+    window.session_manager._on_reconnected(sid)
+    window.session_manager._on_connection_lost(sid)
+    check("掉线: 重连之后能再次上报下一条", len(emitted) == 2, f"{emitted}")
+    window.close()
+
+
+def test_terminal_tab_reaches_device():
+    """按 Tab 必须真的发给设备，且不能把焦点跳走
+
+    Qt 的 QWidget::event() 对 Tab 的处理优先于 keyPressEvent：只要焦点链里
+    还有下一个可聚焦控件，Tab 就会被它吃掉去跳转焦点（跳到会话标签栏 /
+    设备库搜索框），终端既收不到 Tab、之后还会失去焦点。
+    """
+    from PyQt6.QtTest import QTest
+    from core.session import SessionInfo
+
+    settings, snapshot = _settings_snapshot()
+    try:
+        settings.set("restore_sessions", False)
+        window = MainWindow()
+        window.show()
+        QApplication.setActiveWindow(window)
+        _APP.processEvents()
+
+        manager = window.session_manager
+        session = SessionInfo(1, "Console", "Serial")
+        session.connector = DummyConnector()
+        session.config = {"host": "COM5", "protocol": "Serial"}
+        manager._sessions[1] = session
+        manager._next_id = 2
+        window.on_session_created(1, "Console")
+        _APP.processEvents()
+
+        terminal = window.tabs[1].terminal
+        terminal.text_edit.setFocus()
+        _APP.processEvents()
+
+        QTest.keyClick(terminal.text_edit, Qt.Key.Key_Tab)
+        _APP.processEvents()
+        check("终端: Tab 真的发给设备了",
+              "\t" in session.connector.sent, repr(session.connector.sent[-3:]))
+        focused = _APP.focusWidget()
+        check("终端: 按 Tab 后焦点没跑掉",
+              focused is terminal.text_edit,
+              type(focused).__name__ if focused else "None")
+
+        QTest.keyClick(terminal.text_edit, Qt.Key.Key_E,
+                       Qt.KeyboardModifier.NoModifier)
+        _APP.processEvents()
+        check("终端: 按键仍进终端", "e" in session.connector.sent,
+              repr(session.connector.sent[-3:]))
+        window.close()
+    finally:
+        _settings_restore(settings, snapshot)
+
+
+def test_nav_rail():
+    """左侧工具窗口条：点图标开关面板，勾选态跟着面板可见性走"""
+    settings, snapshot = _settings_snapshot()
+    try:
+        settings.set("restore_sessions", False)
+        window = MainWindow()
+        window.show()
+        QApplication.setActiveWindow(window)
+        _APP.processEvents()
+
+        rail = window.rail
+        check("工具窗口条: 三个入口都在",
+              all(rail.is_checked(key) in (True, False)
+                  for key in ("devices", "ai")), repr(rail._actions.keys()))
+        check("工具窗口条: 默认设备库选中、AI 未选中",
+              rail.is_checked("devices") is True and rail.is_checked("ai") is False,
+              f"devices={rail.is_checked('devices')} ai={rail.is_checked('ai')}")
+        check("三栏分隔条: 热区加宽到 6px（4px 抓不住）",
+              window.side_splitter.handleWidth() >= 6,
+              str(window.side_splitter.handleWidth()))
+        check("三栏分隔条: 三栏都挂在 splitter 上",
+              window.side_splitter.count() == 3,
+              str(window.side_splitter.count()))
+
+        before = window.side_splitter.sizes()[0]
+        window.on_rail_item("devices")
+        check("工具窗口条: 点图标收起设备库",
+              window.vault_panel.isHidden() is True,
+              str(window.side_splitter.sizes()))
+        check("工具窗口条: 勾选态跟着面板变", rail.is_checked("devices") is False)
+
+        # 收起来再打开，宽度要还原（至少不低于最小宽度，不然面板会缩成一条缝）
+        window.on_rail_item("devices")
+        _APP.processEvents()
+        check("工具窗口条: 重新打开时宽度还原",
+              window.side_splitter.sizes()[0] >= 170,
+              f"{before} -> {window.side_splitter.sizes()}")
+
+        window.on_rail_item("ai")
+        check("工具窗口条: 点图标打开 AI 面板",
+              window.side_splitter.sizes()[1] > 0 and rail.is_checked("ai") is True,
+              f"sizes={window.side_splitter.sizes()} checked={rail.is_checked('ai')}")
+        check("AI 面板: 打开后有实际宽度",
+              window.side_splitter.sizes()[1] > 200,
+              str(window.side_splitter.sizes()))
+        check("AI 面板: 打开后页签栏可见",
+              window.right_tabs.tabBar().isVisible() is True)
+
+        # 从别处（视图菜单 / 面板上的 ✕）关掉时，图标也要跟着取消勾选
+        window.set_ai_panel_visible(False)
+        _APP.processEvents()
+        check("工具窗口条: 别处关面板也同步", rail.is_checked("ai") is False,
+              str(rail.is_checked("ai")))
+        window.close()
+    finally:
+        _settings_restore(settings, snapshot)
+
+
+def test_terminal_find_and_zoom():
+    """终端查找（Ctrl+F）与字号缩放（Ctrl+= / Ctrl+- / Ctrl+0 / Ctrl+滚轮）"""
+    from ui.terminal_widget import TerminalWidget
+
+    widget = TerminalWidget(1)
+    widget.append_output("Ruijie#show version\n")
+    widget.append_output("System software version : RGOS 10.4(2b12)\n")
+    widget.append_output("Ruijie#show interfaces status\n")
+
+    check("查找: 默认收起", widget.find_bar.isHidden() is True)
+    widget.toggle_find_bar()
+    check("查找: Ctrl+F 唤出", widget.find_bar.isHidden() is False)
+    widget.toggle_find_bar()
+    check("查找: 再按 Ctrl+F 收起", widget.find_bar.isHidden() is True)
+    widget.toggle_find_bar()
+
+    widget.find_input.setText("show")
+    check("查找: 命中计数", widget.find_label.text() == "2 处",
+          repr(widget.find_label.text()))
+    check("查找: 已选中第一处",
+          widget.text_edit.textCursor().selectedText() == "show",
+          repr(widget.text_edit.textCursor().selectedText()))
+
+    widget.find_next()
+    check("查找: 下一个不报错", widget.text_edit.textCursor().hasSelection() is True)
+
+    widget.find_input.setText("不存在的命令")
+    check("查找: 无匹配时给出提示", widget.find_label.text() == "无匹配",
+          repr(widget.find_label.text()))
+
+    # 查找框里的 Esc 要能直接关掉（窗口没显示时 hasFocus 不可靠，这里直接走
+    # 事件过滤器，跟真实按键走的是同一条路）
+    from PyQt6.QtGui import QKeyEvent
+    escape = QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Escape,
+                       Qt.KeyboardModifier.NoModifier)
+    widget.eventFilter(widget.find_input, escape)
+    check("查找: Esc 关闭查找条", widget.find_bar.isHidden() is True)
+
+    base = widget._font_size
+    widget.zoom_font(1)
+    check("字号: 放大", widget._font_size == base + 1, str(widget._font_size))
+    widget.zoom_font(-1)
+    check("字号: 缩小", widget._font_size == base, str(widget._font_size))
+    widget.zoom_font(5)
+    widget.zoom_font(0)
+    check("字号: Ctrl+0 还原", widget._font_size == base, str(widget._font_size))
+    # 光标宽度要跟着字号走，否则放大后整块光标会跟字对不上
+    widget.zoom_font(4)
+    check("字号: 放大后光标变宽", widget.text_edit.cursorWidth() > 10,
+          str(widget.text_edit.cursorWidth()))
+    widget.close()
+
+
+def test_terminal_tab_repeat():
+    """按住 Tab：重复按键不再一次次发给设备；过期的候选不能拿去补全
+
+    按住 Tab 时系统会以每秒几十次重复发送，每次都真的下发 → 设备一遍遍吐
+    补全清单、屏幕被反复重画（表现为"卡住"、退格也删不动）。
+    """
+    from PyQt6.QtGui import QKeyEvent
+    from ui.terminal_widget import TerminalWidget
+
+    def key_event(auto_repeat=False):
+        return QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_Tab,
+                         Qt.KeyboardModifier.NoModifier, "", auto_repeat)
+
+    widget = TerminalWidget(1)
+    widget.set_vendor("ruijie")
+    sent = []
+    widget.raw_input.connect(sent.append)
+
+    widget.handle_key_press(key_event(False))      # 第一次按下
+    widget.handle_key_press(key_event(True))       # 之后的按住重复
+    widget.handle_key_press(key_event(True))
+    check("按住 Tab: 重复按键不重复下发", sent.count("\t") == 1, repr(sent))
+
+    # 候选必须还对得上当前命令行，否则补出来的就是一条错命令
+    def press(ch):
+        widget.handle_key_press(QKeyEvent(QKeyEvent.Type.KeyPress, Qt.Key.Key_S,
+                                          Qt.KeyboardModifier.NoModifier, ch))
+
+    widget.append_output("Ruijie#")
+    for ch in "sh":
+        press(ch)
+        widget.append_output(ch)                   # 设备逐字符回显
+    check("按住 Tab: 用例前置条件（按 sh 有候选）",
+          widget.hint_popup.is_active() is True, str(widget.hint_popup.count()))
+
+    widget.append_output("ow cpu")                 # 设备把这一行补成了 show cpu
+    check("按住 Tab: 设备补全后缓冲跟着走", widget.command_buffer == "show cpu",
+          repr(widget.command_buffer))
+    sent.clear()
+    widget._accept_hint("show arp")                # 拿着按 "sh" 算出来的旧候选来采纳
+    check("按住 Tab: 过期候选不往设备发尾巴", sent == [], repr(sent))
+    check("按住 Tab: 过期候选不改动命令行",
+          widget.command_buffer == "show cpu", repr(widget.command_buffer))
+    widget.close()
+
+
+def test_command_hint():
+    """命令建议：候选来源、前缀匹配、执行过的排前面"""
+    from ui.command_hint import CommandDictionary
+
+    dictionary = CommandDictionary("ruijie")
+    hits = dictionary.suggest("sh")
+    check("命令建议: 按前缀给出候选", "show version" in hits, repr(hits))
+    check("命令建议: 空输入不给候选", dictionary.suggest("") == [])
+    check("命令建议: 大小写不敏感", dictionary.suggest("SHOW VER") == ["show version"],
+          repr(dictionary.suggest("SHOW VER")))
+    check("命令建议: 只给前缀匹配的",
+          all(h.lower().startswith("sh") for h in hits), repr(hits))
+    check("命令建议: 已输入完整命令就不再提示",
+          "show arp" not in dictionary.suggest("show arp"), repr(dictionary.suggest("show arp")))
+
+    dictionary.mark_used("show version")
+    hits = dictionary.suggest("show v")
+    check("命令建议: 执行过的排最前", hits and hits[0] == "show version", repr(hits[:3]))
+
+    dictionary.add("show version")
+    check("命令建议: 重复收录不重复出现",
+          dictionary.all_commands().count("show version") == 1,
+          str(dictionary.all_commands().count("show version")))
+
+    # 文档里抽出来的参数碎片不能进提示表 —— 否则就是"提示的命令是错的"
+    from ui.command_hint import looks_like_command
+    for junk in ("text", "un", "at", "state", "description", "line-detect"):
+        check(f"命令建议: 文档碎片不算命令 {junk!r}",
+              looks_like_command(junk) is False, repr(junk))
+    for good in ("show version", "no shutdown", "display interface brief",
+                 "reload", "write", "system-view"):
+        check(f"命令建议: 真命令照收 {good!r}",
+              looks_like_command(good) is True, repr(good))
+    dirty = CommandDictionary("ruijie")
+    dirty.add("state")
+    check("命令建议: 碎片进不了提示表",
+          "state" not in dirty.all_commands(), repr(dirty.all_commands()))
+    # 用户亲手敲过的命令不受这条判断限制（设备已经认了）
+    manual = CommandDictionary("ruijie")
+    manual.mark_used("state")
+    check("命令建议: 亲手敲过的不受碎片过滤影响",
+          "state" in manual.all_commands(), repr(manual.all_commands()))
+
+
+def test_terminal_line_resync():
+    """设备那一行上还留着内容时，退格/回车要跟着它走（输入缓冲不能装作看不见）
+
+    真实故障：屏幕与输入缓冲不同步时，缓冲是空的、屏幕上却有字 —— 表现为
+    "退格删不掉内容""回车什么也不执行（也不报错）"。设备那一行上的残留
+    必须能被认下来再删掉/执行。
+    """
+    from PyQt6.QtGui import QKeyEvent
+    from ui.terminal_widget import TerminalWidget
+
+    def press(widget, key, text="", mods=Qt.KeyboardModifier.NoModifier):
+        widget.handle_key_press(QKeyEvent(QKeyEvent.Type.KeyPress, key, mods, text))
+
+    widget = TerminalWidget(1)
+    widget.append_output("Ruijie#")              # 设备打出提示符
+    widget.append_output("show ver")             # 设备行上留着半截命令，缓冲却是空的
+    check("残留处理: 设备行有内容时算作忙", widget.input_pending() is True)
+    sent = []
+    widget.raw_input.connect(sent.append)
+    press(widget, Qt.Key.Key_Backspace)
+    check("残留处理: 退格能删掉屏幕上的字",
+          widget.command_buffer == "show ve", repr(widget.command_buffer))
+    check("残留处理: 退格已下发设备", sent == ["\b"], repr(sent))
+
+    press(widget, Qt.Key.Key_Return)
+    check("残留处理: 回车把这一行记进历史",
+          widget.command_history == ["show ve"], repr(widget.command_history))
+    check("残留处理: 回车后缓冲清空", widget.command_buffer == "",
+          repr(widget.command_buffer))
+
+    # 提示符自带尾部空格时不能一直判成"正在输入"，否则型号探测全被挡掉
+    widget2 = TerminalWidget(2)
+    widget2.append_output("Ruijie# ")
+    check("残留处理: 只有提示符后面的空格不算输入",
+          widget2.input_pending() is False, repr(widget2._device_line_input()))
+    widget.close()
+    widget2.close()
+
+
+def test_terminal_command_hint():
+    """终端里边敲边给建议：上下选、Tab 采纳、Esc 收起"""
+    from PyQt6.QtGui import QKeyEvent
+    from ui.terminal_widget import TerminalWidget
+
+    def press(widget, key, text="", mods=Qt.KeyboardModifier.NoModifier):
+        widget.handle_key_press(QKeyEvent(QKeyEvent.Type.KeyPress, key, mods, text))
+
+    widget = TerminalWidget(1)
+    widget.set_vendor("ruijie")
+    sent = []
+    widget.raw_input.connect(sent.append)
+
+    for ch in "sh":
+        press(widget, Qt.Key.Key_S, ch)
+    check("命令建议: 敲字后浮层出现", widget.hint_popup.is_active() is True,
+          str(widget.hint_popup.count()))
+    first = widget.hint_popup.current_command()
+    press(widget, Qt.Key.Key_Down)
+    check("命令建议: 下键切换候选项",
+          widget.hint_popup.current_command() != first,
+          repr((first, widget.hint_popup.current_command())))
+
+    target = widget.hint_popup.current_command()
+    sent.clear()
+    press(widget, Qt.Key.Key_Tab)
+    check("命令建议: Tab 采纳建议", widget.command_buffer == target,
+          repr(widget.command_buffer))
+    check("命令建议: 只补发差的尾巴",
+          "".join(sent) == target[2:], repr("".join(sent)))
+    check("命令建议: 采纳后收起浮层", widget.hint_popup.is_active() is False)
+
+    # 回车执行：该命令被记住，之后提同类前缀排最前
+    press(widget, Qt.Key.Key_Return)
+    check("命令建议: 回车后命令已收录",
+          target in widget.dictionary.all_commands(), repr(target))
+    check("命令建议: 执行过的排最前",
+          widget.dictionary.suggest(target.split()[0])[0] == target,
+          repr(widget.dictionary.suggest(target.split()[0])[:3]))
+
+    for ch in "sh":
+        press(widget, Qt.Key.Key_S, ch)
+    check("命令建议: 再敲又出现", widget.hint_popup.is_active() is True)
+    press(widget, Qt.Key.Key_Escape)
+    check("命令建议: Esc 收起浮层", widget.hint_popup.is_active() is False)
+
+    # 浮层收起时 Tab 仍然交给设备做补全
+    sent.clear()
+    press(widget, Qt.Key.Key_Tab)
+    check("命令建议: 浮层收起时 Tab 发给设备", "\t" in sent, repr(sent))
+    widget.close()
+
+
+def test_device_version_info():
+    """各厂商 show/display version 回显都能认出型号与版本（各家真机格式）"""
+    from core.terminal import extract_device_info
+
+    samples = [
+        # 锐捷：型号写在描述里；且 hardware version 也带 "version:" —— 不能抓成 1.05
+        ("锐捷 S2928G-E", """
+Ruijie>show version
+System description     : Ruijie Full Gigabit Security & Intelligence Access Switch (S2928G-E) By Ruijie Networks
+System start time      : 2026-09-22 20:52:16
+System uptime          : 1:15:6
+System hardware version: 1.05
+System software version: RGOS 10.4(2b12) Release(154722)
+System BOOT version    : 10.4(2b12) Release(154722)
+System serial number   : G1G304J002013
+""", "S2928G-E", "10.4(2b12) Release(154722)"),
+
+        ("锐捷 S5750", """
+Ruijie#show version
+System description      : Ruijie Full 10G Routing Switch(S5750-24GT4XS-P) By Ruijie Networks
+System hardware version : 1.10
+System software version : RGOS 11.4(1)B70P1 Release(118875)
+""", "S5750-24GT4XS-P", "11.4(1)B70P1 Release(118875)"),
+
+        # 华为：版本行里也写型号（5.170 (S5720 ...)），要认开机行里的整机型号
+        ("华为 S5720 VRP5", """
+<HUAWEI>display version
+Huawei Versatile Routing Platform Software
+VRP (R) software, Version 5.170 (S5720 V200R019C10SPC500)
+Copyright (C) 2012-2020 HUAWEI TECH CO., LTD
+HUAWEI S5720-28X-SI-AC Routing Switch uptime is 12 weeks, 2 days
+""", "S5720-28X-SI-AC", "5.170"),
+
+        ("华为 CE6865 VRP8", """
+<HUAWEI>display version
+Huawei Versatile Routing Platform Software
+VRP (R) software, Version 8.180 (CE6865EI V200R005C10SPC800)
+HUAWEI CE6865-48S8CQ-EI uptime is 30 days, 4 hours, 5 minutes
+""", "CE6865-48S8CQ-EI", "8.180"),
+
+        ("H3C S5560 Comware7", """
+<H3C>display version
+H3C Comware Software, Version 7.1.070, Release 6126P01
+Copyright (c) 2004-2020 New H3C Technologies Co., Ltd.
+H3C S5560-30C-EI uptime is 0 weeks, 0 days, 2 hours, 1 minute
+""", "S5560-30C-EI", "7.1.070 Release 6126P01"),
+
+        ("H3C S5500 Comware5", """
+<H3C>display version
+H3C Comware Platform Software
+Comware Software, Version 5.20, Release 2220P02
+Copyright (c) 2004-2014 Hangzhou H3C Tech. Co., Ltd.
+H3C S5500-28C-EI uptime is 0 week, 0 day, 0 hour, 1 minute
+""", "S5500-28C-EI", "5.20 Release 2220P02"),
+
+        ("H3C MSR36-40", """
+<H3C>display version
+H3C Comware Software, Version 7.1.064, Release 0613P16
+H3C MSR36-40 uptime is 1 week, 3 days, 2 hours
+""", "MSR36-40", "7.1.064 Release 0613P16"),
+
+        # Cisco：镜像名里的 C2960 不能盖过整机型号 WS-C2960-24TT-L
+        ("Cisco 2960 IOS15", """
+Switch>show version
+Cisco IOS Software, C2960 Software (C2960-LANBASEK9-M), Version 15.0(2)SE11, RELEASE SOFTWARE (fc3)
+cisco WS-C2960-24TT-L (PowerPC405) processor (revision B0) with 65536K bytes of memory.
+""", "WS-C2960-24TT-L", "15.0(2)SE11"),
+
+        ("Cisco C9300 IOS-XE", """
+Switch>show version
+Cisco IOS XE Software, Version 17.03.04a
+Cisco IOS Software [Amsterdam], Catalyst L3 Switch Software (CAT9K_IOSXE), Version 17.3.4a, RELEASE SOFTWARE (fc7)
+cisco C9300-48P (X86) processor with 1526546K/6147K bytes of memory.
+""", "C9300-48P", "17.03.04a"),
+
+        ("Cisco Nexus NX-OS", """
+switch# show version
+Cisco Nexus Operating System (NX-OS) Software
+TAC support: http://www.cisco.com/tac
+  system:    version 9.3(5)
+  BIOS:      version 07.66
+cisco Nexus3048 Chassis ("48x1GE + 4x10G Supervisor + 2x10G")
+""", "Nexus3048", "9.3(5)"),
+
+        ("Cisco ISR4331 IOS-XE", """
+Router>show version
+Cisco IOS XE Software, Version 16.09.04
+Cisco IOS Software [Fuji], ISR Software (X86_64_LINUX_IOSD-UNIVERSALK9-M), Version 16.9.4
+cisco ISR4331/K9 (1RU) processor with 1786636K/6147K bytes of memory.
+""", "ISR4331", "16.09.04"),
+    ]
+
+    for label, text, want_model, want_version in samples:
+        info = extract_device_info(text)
+        check(f"型号识别: {label} 型号", info["model"] == want_model, repr(info))
+        check(f"型号识别: {label} 版本",
+              info["os_version"] == want_version, repr(info))
+        check(f"型号识别: {label} 厂商认出来了", info["vendor"] != "unknown", repr(info))
+
+    info = extract_device_info("% Unknown command\nRouter>")
+    check("型号识别: 认不出来时留空",
+          info["model"] == "" and info["os_version"] == "", repr(info))
+    check("型号识别: 空输出不报错", extract_device_info("")["model"] == "")
+
+
+def test_command_table_is_local():
+    """自动补全的命令表由程序自己维护 —— 不再敲 ? 去问设备
+
+    敲 ? 会让探测内容留在设备那一行上（翻页的空格更是直接插进用户正在敲的
+    命令里），所以命令表完全改成程序侧来源：内置厂商表 + 资料库整理出的命令。
+    """
+    import shutil
+    import tempfile
+    from core.session import SessionInfo
+
+    settings, snapshot = _settings_snapshot()
+    kb_dir = tempfile.mkdtemp(prefix="aiterminal_cmdtable_")
+    try:
+        settings.set("restore_sessions", False)
+        settings.set("knowledge_dir", kb_dir)
+        window = MainWindow()
+        window.show()
+        QApplication.setActiveWindow(window)
+        window.session_manager.refresh_knowledge()
+        _APP.processEvents()
+
+        manager = window.session_manager
+        session = SessionInfo(1, "Console", "Serial")
+        session.connector = DummyConnector(simulate_prompt=False)
+        session.config = {"host": "COM5", "protocol": "Serial"}
+        manager._sessions[1] = session
+        manager._next_id = 2
+        window.on_session_created(1, "Console")
+        _APP.processEvents()
+
+        # 型号探测照常（只发 show version），但绝不能再往设备敲 ? 取命令表
+        window.probe_device_version(1)
+        _APP.processEvents()
+        sent = [str(c) for c in session.connector.sent]
+        check("命令表: 不再向设备敲 ? 问命令表",
+              not any("?" in c for c in sent), repr(sent))
+        check("命令表: 也不动设备的分屏设置",
+              not any("length" in c.lower() for c in sent), repr(sent))
+        check("型号探测: 照常发 show version",
+              any("show version" in c for c in sent), repr(sent))
+
+        # 候选来自程序自己的表：内置厂商命令 + 资料库整理出的命令
+        terminal = window.tabs[1].terminal
+        terminal.set_vendor("ruijie")
+        check("命令表: 内置厂商命令可用",
+              "show version" in terminal.dictionary.all_commands(),
+              repr(terminal.dictionary.all_commands()[:5]))
+
+        kb = manager.knowledge_base
+        kb.save_commands("某型号 常用命令", ["show interfaces status"],
+                         category="命令速查")
+        window.load_kb_commands_into_sessions()
+        check("命令表: 资料库整理出的命令进了建议",
+              "show interfaces status" in terminal.dictionary.all_commands(),
+              repr(terminal.dictionary.all_commands()[-5:]))
+        window.close()
+    finally:
+        _settings_restore(settings, snapshot)
+        shutil.rmtree(kb_dir, ignore_errors=True)
+
+
+def test_document_digest():
+    """导入文档后整理出「技术解释 + 命令」，并让命令进入自动提示"""
+    import shutil
+    import tempfile
+    from core.knowledge import find_command_candidates, read_text_file
+    from core.ai_agent import AIAgent
+    from core.session import SessionInfo
+    from ui import main_window as mw_module
+
+    # 粗筛候选：只留"看起像命令"的行
+    text = ("本文介绍接口配置。\n"
+            "display interface brief\n"
+            "interface GigabitEthernet0/1\n"
+            "  该命令用于查看接口状态。\n"
+            "The device supports the following features\n"
+            "vlan 10, 20\n"
+            "show running-config\n")
+    candidates = find_command_candidates(text)
+    check("文档整理: 粗筛出命令行",
+          "display interface brief" in candidates, repr(candidates))
+    check("文档整理: 丢掉中文说明行",
+          all("该命令" not in c for c in candidates), repr(candidates))
+    check("文档整理: 丢掉带标点的行",
+          "vlan 10, 20" not in candidates, repr(candidates))
+
+    explanation, commands = AIAgent.split_digest(
+        "## 技术解释\n接口查看命令分两类。\n\n## 命令\n```\ndisplay interface brief\n```\n")
+    check("文档整理: 拆出技术解释", "两类" in explanation, repr(explanation))
+    check("文档整理: 拆出命令清单",
+          commands == ["display interface brief"], repr(commands))
+
+    # 厚手册要跨章节均匀采样：只取前 N 条会全是前几章的命令
+    from core.knowledge import even_sample
+    items = [f"cmd{index}" for index in range(1000)]
+    picked = even_sample(items, 100)
+    check("文档整理: 均匀采样覆盖全文",
+          len(picked) == 100 and picked[0] == "cmd0" and picked[-1] == "cmd990",
+          repr(picked[:3] + picked[-3:]))
+    check("文档整理: 候选不够时原样返回",
+          even_sample(["a", "b"], 5) == ["a", "b"])
+
+    settings, snapshot = _settings_snapshot()
+    kb_dir = tempfile.mkdtemp(prefix="aiterminal_digest_")
+    try:
+        settings.set("restore_sessions", False)
+        settings.set("knowledge_dir", kb_dir)
+        settings.set("api_key", "sk-test")
+        window = MainWindow()
+        window.show()
+        QApplication.setActiveWindow(window)
+        window.session_manager.refresh_knowledge()
+        _APP.processEvents()
+
+        manual = os.path.join(kb_dir, "H3C接口配置手册.md")
+        with open(manual, "w", encoding="utf-8") as f:
+            f.write("# 接口配置\n" + "display interface brief\n" * 3 + "说明文字" * 60)
+
+        class _FakeAgent:
+            """替身：不联网，直接给一份整理结果"""
+            def __init__(self, **kwargs):
+                pass
+
+            def digest_document(self, name, text, candidates=None):
+                return ("接口状态用 display 系命令查看，注意先看 UP/DOWN。",
+                        ["display interface brief", "display version"])
+
+        original = mw_module.AIAgent
+        mw_module.AIAgent = _FakeAgent
+        try:
+            window.start_document_digest([manual])
+            deadline = time.time() + 5
+            while time.time() < deadline and not window.note_paths("H3C接口配置手册 摘要"):
+                time.sleep(0.05)
+                _APP.processEvents()
+        finally:
+            mw_module.AIAgent = original
+
+        paths = window.note_paths("H3C接口配置手册 摘要")
+        check("文档整理: 生成摘要笔记", bool(paths), repr(os.listdir(kb_dir)))
+        note = read_text_file(paths[0]) if paths else ""
+        check("文档整理: 笔记含技术解释", "UP/DOWN" in note, repr(note[:120]))
+        check("文档整理: 笔记含命令清单", "display version" in note, repr(note[-200:]))
+
+        # 整理出的命令要能进终端提示（连上设备时自动装载）
+        manager = window.session_manager
+        session = SessionInfo(1, "Console", "Serial")
+        session.connector = DummyConnector(simulate_prompt=False)
+        session.config = {"host": "COM5", "protocol": "Serial"}
+        manager._sessions[1] = session
+        manager._next_id = 2
+        window.load_kb_commands_into_sessions()
+        window.on_session_created(1, "Console")
+        _APP.processEvents()
+        loaded = window.tabs[1].terminal.dictionary.all_commands()
+        check("文档整理: 整理出的命令进了自动提示",
+              "display interface brief" in loaded, repr(loaded[-5:]))
+
+        # 没配 AI 也要能整理：命令清单由程序自己从正文里抽，技术解释留空
+        settings.set("api_key", "")
+        settings.set("provider_keys", {})
+        manual2 = os.path.join(kb_dir, "锐捷S2928G-E手册.md")
+        with open(manual2, "w", encoding="utf-8") as f:
+            f.write("# 常用查看命令\n" + "show cpu\n" * 3 + "show version\n"
+                    + "说明文字" * 60)
+        window.start_document_digest([manual2])
+        deadline = time.time() + 5
+        while time.time() < deadline and not window.note_paths("锐捷S2928G-E手册 摘要"):
+            time.sleep(0.05)
+            _APP.processEvents()
+        local_paths = window.note_paths("锐捷S2928G-E手册 摘要")
+        check("文档整理: 没配 AI 也能整理（命令由程序抽）", bool(local_paths),
+              repr(os.listdir(kb_dir)))
+        local_note = read_text_file(local_paths[0]) if local_paths else ""
+        check("文档整理: 本地抽出的命令进了笔记", "show cpu" in local_note,
+              repr(local_note[-200:]))
+        window.close()
+    finally:
+        _settings_restore(settings, snapshot)
+        shutil.rmtree(kb_dir, ignore_errors=True)
+
+
+def test_command_lines_parsing():
+    """从模型回复里挑命令行：去掉编号/项目符号/围栏"""
+    from core.ai_agent import AIAgent
+
+    agent = AIAgent(api_key="x", provider="deepseek")
+
+    reply = ("1. show version\n"
+             "- show interfaces status\n"
+             "```\n"
+             "show running-config\n"          # 围栏内的也算命令
+             "```\n"
+             "说明：以上是常用命令\n"          # 中文说明行要丢掉
+             "show version\n")                 # 重复的要丢掉
+    commands = agent.parse_command_lines(reply)
+    check("命令清单: 去掉编号与项目符号",
+          commands[:3] == ["show version", "show interfaces status",
+                           "show running-config"], repr(commands))
+    check("命令清单: 丢掉中文说明行",
+          all("说明" not in c for c in commands), repr(commands))
+    check("命令清单: 去重", commands.count("show version") == 1, repr(commands))
+    check("命令清单: 一条都没有时返回空",
+          agent.parse_command_lines("") == [])
+    # 围栏语言标记不能当命令（```text 被剥成 text 就是这个坑）
+    check("命令清单: 围栏语言标记不当命令",
+          agent.parse_command_lines("```text\nshow version\n```") == ["show version"],
+          repr(agent.parse_command_lines("```text\nshow version\n```")))
+
+
+def test_device_version_probe():
+    """连上后自动探测型号/版本；命令建议只来自程序内的表（不再让 AI 猜）"""
+    import shutil
+    import tempfile
+    from core.session import SessionInfo
+
+    VERSION_OUTPUT = (
+        "Console#show version\n"
+        "Ruijie Full Internetworking Operating System (RGOS)\n"
+        "Version 11.4(1)B70P1\n"
+        "System description : Ruijie RG-S2910-24GT4XS-E\n")
+
+    settings, snapshot = _settings_snapshot()
+    kb_dir = tempfile.mkdtemp(prefix="aiterminal_devcmd_")
+    try:
+        settings.set("restore_sessions", False)
+        settings.set("knowledge_dir", kb_dir)
+        window = MainWindow()
+        window.show()
+        QApplication.setActiveWindow(window)
+        window.session_manager.refresh_knowledge()
+        _APP.processEvents()
+
+        manager = window.session_manager
+        session = SessionInfo(1, "Console", "Serial")
+        session.connector = DummyConnector(simulate_prompt=False)
+        session.config = {"host": "COM5", "protocol": "Serial"}
+        manager._sessions[1] = session
+        manager._next_id = 2
+        window.on_session_created(1, "Console")
+        _APP.processEvents()
+
+        window.probe_device_version(1)
+        check("型号探测: 已发出 show version",
+              session.connector.sent[-1] == "show version",
+              repr(session.connector.sent[-2:]))
+
+        window.on_version_output(1, VERSION_OUTPUT)
+        check("型号探测: 型号已记到会话上",
+              session.model == "RG-S2910-24GT4XS-E" and session.os_version == "11.4(1)B70P1",
+              repr((session.model, session.os_version)))
+
+        # 建议里只有程序内来源：内置厂商表 / 资料库整理出的手册命令 /
+        # 本会话执行过的命令 —— 不再有"AI 按型号猜"的那一批
+        commands = window.tabs[1].terminal.dictionary.all_commands()
+        check("型号探测: 建议来自内置厂商表",
+              "show interfaces status" in commands, repr(commands))
+        check("型号探测: 不再塞入 AI 猜的命令",
+              not any("fan" in c or "temperature" in c for c in commands),
+              repr(commands))
+
+        # 认不出来时最多换一次语法 —— 不能一直往设备发命令（曾因此刷屏）
+        window.on_version_output(1, "% Unknown command.\nRuijie>")
+        first = len(session.connector.sent)
+        check("型号探测: 认不出时换一种语法再试",
+              session.connector.sent[-1] == "display version",
+              repr(session.connector.sent[-2:]))
+        window.on_version_output(1, "% Unknown command.\nRuijie>")
+        window.on_version_output(1, "% Unknown command.\nRuijie>")
+        check("型号探测: 两种语法都试过就不再发",
+              session.connector.sent.count("display version") == 1,
+              repr(session.connector.sent))
+        window.close()
+    finally:
+        _settings_restore(settings, snapshot)
+        shutil.rmtree(kb_dir, ignore_errors=True)
 
 
 def test_ai_agent():
@@ -382,7 +1663,10 @@ def test_v02_dialogs():
     summary = dialog.summary_label.text()
     check("比对对话框: 生成结果", "新增" in summary or "一致" in summary, summary)
     html_text = dialog.diff_view.toHtml()
-    check("比对对话框: 差异着色", "3fb950" in html_text or "f85149" in html_text)
+    from ui.theme import P as _THEME_P
+    check("比对对话框: 差异着色",
+          _THEME_P["ok"].lstrip("#").lower() in html_text.lower()
+          or _THEME_P["err"].lstrip("#").lower() in html_text.lower())
     dialog.close()
 
     tpl = TemplateDialog(None, default_delay=300, session_name="测试设备", vendor="h3c")
@@ -634,38 +1918,22 @@ def test_serial_console():
     check("串口: 行结束符含CR", any(v == "\r" for _l, v in LINE_ENDING_OPTIONS))
 
 
-def test_ai_panel_tabs_and_queue():
-    """校验 AI 面板三个页签与待执行队列"""
+def test_ai_panel_tabs():
+    """校验 AI 高级面板：只留 AI 设置入口与资料检索两个页签"""
     from ui.ai_panel import AIPanel
     panel = AIPanel()
-    check("AI面板: 三个页签", panel.tabs.count() == 3, str(panel.tabs.count()))
+    check("AI面板: 两个页签", panel.tabs.count() == 2, str(panel.tabs.count()))
     check("AI面板: 页签标题",
-          [panel.tabs.tabText(i) for i in range(3)] == ["AI 助手", "资料检索", "待执行"])
-
-    check("AI面板: 待执行初始为空", panel.queue_list.count() == 0)
-    added = panel.add_commands(["display version", "reboot", "display version", ""])
-    check("AI面板: 入队去重", added == 2, str(added))
-    check("AI面板: 默认全部勾选", len(panel.checked_commands()) == 2)
-
-    panel.set_all_checked(False)
-    check("AI面板: 全不选", panel.checked_commands() == [])
-    panel.queue_list.item(0).setCheckState(Qt.CheckState.Checked)
-    check("AI面板: 单条勾选", panel.checked_commands() == ["display version"])
-
-    panel.remove_checked()
-    check("AI面板: 移除勾选", panel.queue_list.count() == 1, str(panel.queue_list.count()))
+          [panel.tabs.tabText(i) for i in range(2)] == ["AI 助手", "资料检索"])
+    check("AI面板: 有 AI 设置入口",
+          hasattr(panel, "btn_ai_settings") and hasattr(panel, "ai_config_label"))
+    check("AI面板: 待执行队列已移除", not hasattr(panel, "queue_list"))
 
     panel.show_research_result("回答内容", [
         {"title": "标题1", "url": "https://example.com/1", "snippet": "s"}
     ])
     check("AI面板: 联网结果显示", "回答内容" in panel.research_output.toPlainText())
     check("AI面板: 来源列表", panel.source_list.count() == 1)
-
-    panel.update_screen_preview("设备输出的内容")
-    check("AI面板: 屏幕预览", "设备输出的内容" in panel.screen_preview.toPlainText())
-
-    panel.clear_queue()
-    check("AI面板: 清空队列", panel.queue_list.count() == 0)
     panel.close()
 
 
@@ -892,6 +2160,94 @@ def test_ai_local_lookup():
         shutil.rmtree(kb_dir, ignore_errors=True)
 
 
+def test_experience_memory():
+    """经验总结：后台归档 → 索引预热 → 下次提同类需求时快速匹配并注入"""
+    import shutil
+    import tempfile
+    from core.knowledge import KnowledgeBase, EXPERIENCE_CATEGORY
+
+    kb_dir = tempfile.mkdtemp(prefix="aiterminal_exp_root_")
+    try:
+        kb = KnowledgeBase(root_dir=kb_dir)
+        # 模拟后台整理出来的经验
+        path = kb.save_note(
+            "经验 · 找出 down 的端口",
+            "**需求**：找出所有 down 的端口\n"
+            "**有效做法**：先 `display interface brief` 再挑 down 的端口详查\n"
+            "**踩坑**：直接 `display interface` 输出太长，翻页时容易漏看",
+            category=EXPERIENCE_CATEGORY, tags="ruijie, display interface")
+        check("经验: 归档成功", bool(path) and os.path.exists(path), str(path))
+        # 同库里再放一条别的分类，验证"经验检索"不会捞错
+        kb.save_note("命令速查 · 端口镜像", "```\nmirroring-group 1 local\n```",
+                     category="命令速查")
+
+        kb.build_index()
+        check("经验: 预热返回可检索片段数", kb.warm_up() > 0)
+
+        agent = AIAgent(api_key="test-key", knowledge_base=kb)
+        context = agent.experience_context("帮我看看哪些接口是 down 的")
+        check("经验: 匹配到历史经验",
+              "display interface brief" in context, repr(context[:60]))
+        check("经验: 记录命中来源", len(agent.last_experience_hits) == 1,
+              repr(agent.last_experience_hits))
+        check("经验: 不混入其它分类",
+              all(EXPERIENCE_CATEGORY in h["source"]
+                  for h in agent.last_experience_hits))
+
+        check("经验: 无关需求不命中",
+              agent.experience_context("zzzz_量子纠缠_zzzz") == "")
+
+        # 归档：把一轮交互压成一条经验
+        class _FakeLLM:
+            def __init__(self):
+                self.calls = []
+            def chat(self, system, messages, max_tokens=900, temperature=0.4):
+                self.calls.append((system, messages))
+                return ("**需求**：找出 down 的端口\n"
+                        "**有效做法**：`display interface brief`")
+            def describe(self):
+                return "FakeLLM"
+
+        agent.llm = _FakeLLM()
+        note = agent.summarize_experience(
+            "找出 down 的端口", "建议先列接口", ["display interface brief"],
+            "Ruijie# show interfaces status", device="Console（Serial）", vendor="ruijie")
+        check("经验: 生成总结", "display interface brief" in note, repr(note[:60]))
+        check("经验: 用归档提示词", "运维经验" in agent.llm.calls[0][0])
+        check("经验: 总结带上了设备与输出",
+              "Console（Serial）" in agent.llm.calls[0][1][0]["content"]
+              and "show interfaces status" in agent.llm.calls[0][1][0]["content"])
+
+        # 模型判断没什么可归档 → 空字符串，调用方静默跳过
+        agent.llm.chat = lambda **k: "SKIP"
+        check("经验: SKIP 时不落库", agent.summarize_experience("你好") == "")
+
+        # 归档调用失败也不能把对话带崩
+        def _boom(**k):
+            raise RuntimeError("网络断了")
+        agent.llm.chat = _boom
+        check("经验: 调用失败静默返回空", agent.summarize_experience("随便") == "")
+
+        # 注入：经验只发给模型这一轮，不写进对话历史（否则每轮都重复烧 token）
+        class _FakeLLM2:
+            def __init__(self):
+                self.last = None
+            def chat(self, system, messages, max_tokens=900, temperature=0.4):
+                self.last = messages
+                return "好的，先列接口状态。"
+        agent.llm = _FakeLLM2()
+        agent.converse("看看哪些口 down 了",
+                       experience="[历史经验1] 经验 · 找出 down 的端口\ndisplay interface brief")
+        sent = agent.llm.last[-1]["content"]
+        check("经验: 本轮已注入给模型",
+              "历史经验" in sent and "display interface brief" in sent, repr(sent[:80]))
+        check("经验: 注入不写进对话历史",
+              all("历史经验" not in m["content"] for m in agent.context),
+              repr(agent.context))
+    finally:
+        shutil.rmtree(kb_dir, ignore_errors=True)
+
+
 def test_knowledge_dialog():
     """资料库管理界面冒烟测试"""
     import shutil
@@ -908,6 +2264,7 @@ def test_knowledge_dialog():
         kb.build_index()
 
         dialog = KnowledgeDialog(None, kb)
+        dialog.wait_loaded()          # 2026-10-17 起构造是异步的（载入在后台线程）
         check("资料库界面: 列表已填充", dialog.table.rowCount() >= 4,
               str(dialog.table.rowCount()))
         check("资料库界面: 统计信息", "篇资料" in dialog.stats_label.text(),
@@ -916,12 +2273,14 @@ def test_knowledge_dialog():
 
         dialog.query_input.setText("mirroring-group")
         dialog.test_search()
+        dialog.wait_search_done()                 # 检索已改成后台线程，要等结果落地
         output = dialog.result_view.toPlainText()
         check("资料库界面: 检索测试命中", "命中" in output and "mirroring-group" in output,
               output[:120])
 
         dialog.query_input.setText("完全不存在的关键词zzz")
         dialog.test_search()
+        dialog.wait_search_done()
         check("资料库界面: 检索测试无命中提示",
               "没有命中" in dialog.result_view.toPlainText())
         dialog.close()
@@ -1015,7 +2374,7 @@ def test_note_dialog():
 
 
 def test_ai_panel_save_note():
-    """AI 面板三处"存为资料"入口"""
+    """资料检索结果 → 存为资料"""
     from ui.ai_panel import AIPanel
 
     panel = AIPanel()
@@ -1037,20 +2396,6 @@ def test_ai_panel_save_note():
     check("AI面板: 内容含回答", "mirroring-group" in content)
     check("AI面板: 内容含参考来源", "参考来源" in content and "命令手册" in content)
     check("AI面板: 分类为命令速查", category == "命令速查", category)
-
-    # AI 输出 → 存为资料
-    panel.append_output("[AI] display interface brief")
-    panel.on_save_output()
-    check("AI面板: AI输出可存为资料", len(captured) == 2)
-    check("AI面板: 输出内容正确", "display interface brief" in captured[-1][1])
-    check("AI面板: 输出分类为AI笔记", captured[-1][2] == "AI笔记")
-
-    # 待执行队列 → 存为资料
-    panel.add_commands(["display version", "display cpu-usage"])
-    panel.on_save_queue()
-    check("AI面板: 队列可存为资料", len(captured) == 3)
-    check("AI面板: 队列内容为代码块",
-          captured[-1][1].startswith("```") and "display cpu-usage" in captured[-1][1])
     panel.close()
 
 
@@ -1571,6 +2916,7 @@ def test_knowledge_dialog_filters():
         kb.build_index()
 
         dialog = KnowledgeDialog(None, kb)
+        dialog.wait_loaded()          # 2026-10-17 起构造是异步的（载入在后台线程）
         check("资料库界面: 列表含全部资料", dialog.table.rowCount() == 5,
               str(dialog.table.rowCount()))
         check("资料库界面: 分类下拉含分类",
@@ -1685,19 +3031,10 @@ def test_main_window():
     # v0.3: 串口按钮默认禁用（非 Console 会话）
     check("工具栏: 串口控制默认禁用", window.action_serial.isEnabled() is False)
 
-    # v0.3: AI 面板页签与屏幕预览
-    check("AI面板: 主窗口内三个页签", window.ai_panel.tabs.count() == 3)
-    window.update_screen_preview()
-    preview = window.ai_panel.screen_preview.toPlainText()
-    check("AI面板: 屏幕预览同步最近输出",
-          preview != "" and preview == session.recent_output[-2000:],
-          f"preview长度={len(preview)}")
-
-    # v0.3: AI 命令进入待执行队列
-    window.on_ai_command(1, "display interface brief")
-    check("待执行队列: AI命令入队",
-          window.ai_panel.queue_list.count() == 1,
-          str(window.ai_panel.queue_list.count()))
+    # v0.3: AI 高级面板只留 AI 设置入口与资料检索
+    check("AI面板: 主窗口内两个页签", window.ai_panel.tabs.count() == 2)
+    check("AI面板: 待执行队列已移除",
+          not hasattr(window.ai_panel, "queue_list"))
 
     # v0.3: 本地回显（Console 场景）
     window.tabs[1].terminal.set_local_echo(True)
@@ -1731,6 +3068,25 @@ def main():
     print("=" * 60)
     _APP = QApplication.instance() or QApplication([])
     test_terminal_buffer()
+    test_terminal_input_tracking()
+    test_terminal_backspace_keeps_device_echo()
+    test_terminal_local_echo_no_duplicate()
+    test_terminal_cr_nul_not_swallowed()
+    test_console_echo_no_doubling_any_shape()
+    test_patrol_device_edit()
+    test_session_connection_lost_visible()
+    test_terminal_tab_reaches_device()
+    test_nav_rail()
+    test_terminal_find_and_zoom()
+    test_terminal_tab_repeat()
+    test_command_hint()
+    test_terminal_line_resync()
+    test_terminal_command_hint()
+    test_device_version_info()
+    test_command_table_is_local()
+    test_document_digest()
+    test_command_lines_parsing()
+    test_device_version_probe()
     test_ai_agent()
     test_settings()
     test_presets_and_plugins()
@@ -1757,6 +3113,7 @@ def main():
     print("-" * 60)
     test_knowledge_base()
     test_ai_local_lookup()
+    test_experience_memory()
     test_save_note()
 
     # 主窗口用例会写配置（批量间隔、会话列表等），测试后还原，避免污染用户配置
@@ -1769,7 +3126,7 @@ def main():
         settings.save()
 
     test_v02_dialogs()
-    test_ai_panel_tabs_and_queue()
+    test_ai_panel_tabs()
     test_knowledge_dialog()
     test_note_dialog()
     test_ai_panel_save_note()

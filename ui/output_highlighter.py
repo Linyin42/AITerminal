@@ -15,13 +15,13 @@ from PyQt6.QtCore import QRegularExpression
 from PyQt6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
 
 # ---------------------------------------------------------------- 配色
-C_PROMPT = "#e6e9f2"   # 提示符 <hostname> —— 白（加粗，不用紫色）
-C_ERROR = "#f85149"    # 错误 —— 红
-C_UP = "#3fb950"       # UP / 成功 —— 绿
-C_DOWN = "#7d8598"     # DOWN / 关闭 —— 灰（刻意弱化，避免和错误混）
-C_IFACE = "#ffa657"    # 接口名 —— 橙
-C_IP = "#79c0ff"       # IP —— 天蓝
-C_MAC = "#f778ba"      # MAC —— 粉
+C_PROMPT = "#E6EAF2"   # 提示符 <hostname> —— 白（加粗，不用紫色）
+C_ERROR = "#F85149"    # 错误 —— 红
+C_UP = "#3FB950"       # UP / 成功 —— 绿
+C_DOWN = "#93A0B4"     # DOWN / 关闭 —— 灰（刻意弱化，避免和错误混）
+C_IFACE = "#d19a66"    # 接口名 —— 橙
+C_IP = "#4C8DFF"       # IP —— 天蓝
+C_MAC = "#9CC2FF"      # MAC —— 粉
 
 
 def _fmt(color: str, bold: bool = False) -> QTextCharFormat:

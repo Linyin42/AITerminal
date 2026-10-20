@@ -32,7 +32,7 @@ class PromptDialog(QDialog):
             "清空内容并保存即恢复内置提示词。"
         )
         tip.setWordWrap(True)
-        tip.setStyleSheet("color: #98a1b5;")
+        tip.setStyleSheet("color: #93A0B4;")
         layout.addWidget(tip)
 
         group = QGroupBox("提示词内容")

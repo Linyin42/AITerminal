@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Sequence
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from .batch import CommandWaiter
+from .batch import CommandWaiter, disable_paging
 from .ssh_connector import SSHConnector
 from .telnet_connector import TelnetConnector
 from .serial_connector import SerialConnector
@@ -44,6 +44,29 @@ STATUS_TEXT = {
 }
 
 
+from .ensp_connector import EnspProConnector
+from .terminal import detect_vendor
+
+
+def guess_vendor(config: dict, extra_text: str = "") -> str:
+    """按设备名/型号/主机/额外文本猜厂商，认不出来就返回 unknown
+
+    只用来决定"先试哪条关分屏命令"，猜错也不致命 —— disable_paging 会按候选
+    列表依次试，代价仅是多一次往返（0.3~0.5 秒）。
+    """
+    parts = [str(config.get(key) or "") for key in
+             ("name", "vendor", "model", "host", "serial_port")]
+    text = " ".join(parts + [extra_text or ""])
+    # 中文名先自己认（detect_vendor 只认英文厂商名）
+    if "华为" in text:
+        return "huawei"
+    if "华三" in text:
+        return "h3c"
+    vendor = detect_vendor(text)
+    return vendor if vendor in ("huawei", "h3c", "cisco", "ruijie") else "unknown"
+
+
+
 def build_connector(config: dict):
     """按配置创建连接器（不注册到会话管理器）"""
     protocol = (config.get('protocol') or 'SSH').strip()
@@ -53,6 +76,11 @@ def build_connector(config: dict):
         return TelnetConnector(), 'Telnet'
     if protocol == 'Serial':
         return SerialConnector(), 'Serial'
+    if protocol == 'eNSP':
+        # eNSP Pro 是第四种协议。之前只接进了 session.py 与引擎，
+        # 巡检这条路漏了 —— 表现是巡检 eNSP 设备直接抛
+        # "ValueError: 不支持的协议: eNSP"。
+        return EnspProConnector(), 'eNSP'
     raise ValueError(f"不支持的协议: {protocol}")
 
 
@@ -71,6 +99,17 @@ def connect_device(connector, protocol: str, config: dict, timeout: float = 10.0
                 flow=config.get('flow', 'none'),
                 line_ending=config.get('line_ending', '\r'),
                 auto_reconnect=False,
+            )
+        elif protocol == 'eNSP':
+            # eNSP 的设备没有 TCP 端点，靠「服务器 + 沙箱号 + 设备号」定位，
+            # 所以不能走下面那套 host/port/username 的通用参数。
+            ok = connector.connect(
+                host=config.get('host', ''),
+                port=int(config.get('port') or 8443),
+                sandbox_id=int(config.get('sandbox_id') or 0),
+                node_id=int(config.get('node_id') or 0),
+                username=config.get('username', ''),
+                password=config.get('password', ''),
             )
         else:
             ok = connector.connect(
@@ -98,7 +137,7 @@ def patrol_device(config: dict, commands: Sequence[str], timeout: float = 10.0,
                   prompt_timeout: float = 30.0, quiet_time: float = 0.3,
                   silence_timeout: float = 2.0, auto_page: bool = True,
                   block_dangerous: bool = True,
-                  on_command=None, should_stop=None) -> dict:
+                  on_command=None, should_stop=None, on_note=None) -> dict:
     """
     巡检单台设备（在工作线程中执行）
 
@@ -107,6 +146,7 @@ def patrol_device(config: dict, commands: Sequence[str], timeout: float = 10.0,
         commands: 要执行的命令列表
         on_command: 回调 (序号, 命令)，用于上报进度
         should_stop: 回调，返回 True 表示需要中止
+        on_note: 回调 (文本)，上报"连上了/正在关分屏/失败原因"这类阶段性信息
     返回:
         结果字典
     """
@@ -125,19 +165,52 @@ def patrol_device(config: dict, commands: Sequence[str], timeout: float = 10.0,
     started = time.time()
     connector = None
     waiter = None
+
+    def note(text: str):
+        """把"正在进行到哪一步"回传给界面（连上/关分屏/失败原因），让进度别停在 0%"""
+        if not on_note:
+            return
+        try:
+            on_note(str(text))
+        except Exception:                           # noqa: BLE001
+            pass
+
     try:
         connector, protocol = build_connector(config)
         result["protocol"] = protocol
         ok, error = connect_device(connector, protocol, config, timeout)
         if not ok:
             result["error"] = error
+            note(f"连接失败：{error}")
             return result
+        note(f"已连接（{protocol}），正在关闭设备分屏…")
 
         waiter = CommandWaiter(connector, quiet_time=quiet_time,
                                timeout=prompt_timeout,
                                silence_timeout=silence_timeout,
                                auto_page=auto_page)
         waiter.start()
+
+        # 先关设备分屏再跑命令。为什么必须做：
+        #   分屏开着时，一条 `display mac-address` 会被切成几十屏，每屏都要等
+        #   "---- More ----" 再补一个空格（每页还带 0.2s 节流），实测 51 KB 的输出
+        #   要 6 秒才收完；命令一多，用户看到的就是"才几个命令怎么这么慢"。
+        #   关掉分屏后同一台设备同样命令 1 秒内收完（2026-10-19 真机复测）。
+        paging_off = ""
+        if auto_page:
+            try:
+                off_ok, used, _text = disable_paging(
+                    connector, waiter, vendor=guess_vendor(config),
+                    quiet_time=quiet_time, timeout=min(15.0, max(5.0, prompt_timeout)))
+                if off_ok:
+                    paging_off = used
+                    note(f"已关闭分屏（{used}）")
+                else:
+                    note("关分屏没成功，将逐页翻页（会慢一些）")
+            except Exception:                       # noqa: BLE001
+                paging_off = ""
+                note("关分屏出错，改为逐页翻页")
+        result["paging"] = paging_off
 
         for index, command in enumerate(commands, start=1):
             if should_stop and should_stop():
@@ -169,7 +242,8 @@ def patrol_device(config: dict, commands: Sequence[str], timeout: float = 10.0,
                 result["error"] = f"发送失败: {e}"
                 break
 
-            result["pages"] += waiter.pages
+            # waiter.pages 是本设备的累计翻页数，逐条累加会重复计数
+            # （3 条命令会报出 50+50+51 这种越滚越大的数），循环结束后统一取一次
             result["commands"].append({
                 "command": command, "status": status,
                 "elapsed": elapsed, "output": output,
@@ -182,6 +256,7 @@ def patrol_device(config: dict, commands: Sequence[str], timeout: float = 10.0,
                 result["error"] = "连接已断开"
                 break
 
+        result["pages"] = waiter.pages if waiter is not None else 0
         result["ok"] = bool(result["commands"]) and not any(
             item["status"] not in OK_STATUSES for item in result["commands"])
         return result
@@ -298,8 +373,11 @@ class PatrolRunner(QObject):
                     self.results.append(results[index])
                     self.device_done.emit(index, results[index])
                     state = "成功" if results[index]["ok"] else "异常"
+                    paging = results[index].get("paging") or ""
+                    extra = f"（已关分屏:{paging}，翻页 {results[index].get('pages', 0)} 次）" \
+                        if paging else ""
                     self.log.emit(f"  [{index + 1}/{total}] "
-                                  f"{results[index]['name']} → {state}")
+                                  f"{results[index]['name']} → {state}{extra}")
         finally:
             self.finished_at = time.time()
 
@@ -335,6 +413,8 @@ class PatrolRunner(QObject):
             on_command=lambda cmd_index, command: self.device_command.emit(
                 index, cmd_index, command),
             should_stop=lambda: self._stop_flag,
+            on_note=lambda text: self.log.emit(
+                f"  {device.get('name') or device.get('host', '')}：{text}"),
         )
 
     # ------------------------------------------------------------ 导出
