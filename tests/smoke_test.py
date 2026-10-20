@@ -612,7 +612,14 @@ def test_patrol_device_edit():
     saved = {}
     dialog.settings.set_patrol_devices = lambda devices: saved.__setitem__("d", devices)
     dialog.settings.save = lambda: None
-    dialog.save_settings()
+    try:
+        dialog.save_settings()
+    finally:
+        # ⚠ 必须还原：Settings 是**共享单例**，这里装上去的替身会一直留在实例上，
+        #   后面 test_settings() 拿到的还是这个对象，`save()` 成了空函数 ⇒
+        #   它那句 "配置保存" 找不到文件而失败（与终端改动无关，纯测试顺序污染）。
+        for _name in ("set_patrol_devices", "save"):
+            dialog.settings.__dict__.pop(_name, None)
     entries = saved.get("d") or []
     check("巡检设备: 设备列表会存下来（下次不用重填）", len(entries) == 2,
           f"{len(entries)} 台")

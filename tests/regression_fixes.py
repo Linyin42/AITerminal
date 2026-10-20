@@ -331,12 +331,19 @@ Ruijie>"""
     # 行为断言在 smoke_test::test_terminal_backspace_without_device_echo。
     back_branch = term_src.split("if key == Qt.Key.Key_Backspace:", 1)[1] \
                           .split("if key == Qt.Key.Key_Up:", 1)[0]
+    # 行内编辑统一收口在 _rewrite_line：擦除（本地一律做）与重画（才看 local_echo）分行
+    rewrite_body = term_src.split("def _rewrite_line", 1)[-1] \
+                           .split("\n    def ", 1)[0]
+    recall_body = term_src.split("def _recall", 1)[-1].split("\n    def ", 1)[0]
+    _erase_at = rewrite_body.find("_echo_backspace()")
+    _echo_at = rewrite_body.find("local_echo")
     check("退格: 本地抹除不再依赖 local_echo",
-          "_echo_backspace()" in back_branch and "local_echo" not in back_branch,
+          _erase_at >= 0 and (_echo_at < 0 or _erase_at < _echo_at)
+          and "self._rewrite_line(" in back_branch,
           "local_echo 只管『输入的字符要不要本地再画一遍』；擦除必须本地做，"
           "否则回显输入却不回显退格的设备（华为）上，屏上的字符永远删不掉")
     check("退格: 回显历史命令时也本地擦",
-          term_src.count("self._echo_backspace()") >= 2,
+          "self._rewrite_line(" in recall_body and _erase_at >= 0,
           "上/下键翻历史同样要擦掉旧行，不能只发 \\b")
     check("退格: 显示区删除也核边界（不只靠缓冲区）",
           "len(self._display_last_line()) > self.screen.protected_prefix_len" in term_src,

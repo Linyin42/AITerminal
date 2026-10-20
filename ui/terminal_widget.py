@@ -89,12 +89,22 @@ class TerminalDisplay(QTextEdit):
         super().setCursorWidth(self._caret_width)
 
     def pin_caret_to_input(self):
-        """没在选中文本时，把插入光标拉回末尾（见 mouseReleaseEvent 注释）"""
+        """没在选中文本时，把插入光标安置到输入段（见 mouseReleaseEvent 注释）
+
+        点在用户自己敲的那一段里 ⇒ 就停在点的地方，可以接着在中间改字；
+        点在提示符或设备输出上 ⇒ 回到行尾（那段不许编辑）。
+        """
         cursor = self.textCursor()
         if cursor.hasSelection():
             return
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        self.setTextCursor(cursor)
+        caret = self._widget._caret_from_cursor(cursor)
+        if caret is None:
+            self._widget._caret = len(self._widget.command_buffer)
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            self.setTextCursor(cursor)
+            return
+        self._widget._caret = caret
+        self._widget._place_caret()
 
     def event(self, event):
         if (event.type() == QEvent.Type.KeyPress
@@ -154,6 +164,11 @@ class TerminalWidget(QWidget):
         # 上次按 Tab 的时刻：窗口期内设备回的是"整行重画"，需要吃掉开头的换行
         # 改为就地改写（否则屏上会堆出一行行重复的提示符）
         self._tab_at = 0.0
+        # 插入光标在**当前输入段**里的位置（0..len(command_buffer)）。
+        # 只有这一段是用户能编辑的内容：提示符与设备输出不进这个下标空间。
+        # 方向键 / 退格 / Delete 全按它算 —— 以前一律"移回末尾再删"，用户把
+        # 光标挪到中间改字时，删的却是行尾（2026-10-20 反馈）。
+        self._caret = 0
         # 命令建议：候选来自本会话执行过的命令 + 厂商常用命令
         self.dictionary = CommandDictionary()
         self.hint_popup = None
@@ -374,6 +389,15 @@ class TerminalWidget(QWidget):
         # 在屏上留下设备根本没收到（也没执行）的内容，一律挡掉。
         # 复制 / 全选 / 左右方向键等不改内容的按键仍交给默认处理。
         if key == Qt.Key.Key_Delete:
+            # 行内删除：删掉光标**右边**那个字符。
+            # 以前整个吃掉 Delete（怕它往显示区塞字），结果用户只能从行尾退格，
+            # 光标挪到中间也照样删末尾（2026-10-20 反馈）。这里按 _caret 算，
+            # 改完由 _rewrite_line 把设备那一行同步成同样的内容。
+            if self._caret < len(self.command_buffer):
+                self._rewrite_line(
+                    self.command_buffer[:self._caret]
+                    + self.command_buffer[self._caret + 1:],
+                    self._caret)
             return
         if mods & Qt.KeyboardModifier.ControlModifier and key in (
                 Qt.Key.Key_V, Qt.Key.Key_X, Qt.Key.Key_Y, Qt.Key.Key_Z):
@@ -424,6 +448,22 @@ class TerminalWidget(QWidget):
                 self.zoom_font(0)
                 return
 
+        # ---- 光标移动（只在自己敲的那一段里走）----
+        # 以前这些键交给 QTextEdit 默认处理：光标能一路跑进提示符和设备输出里，
+        # 看起来"能移动"，实际下一次退格又跳回末尾删字（2026-10-20 反馈）。
+        if key in (Qt.Key.Key_Left, Qt.Key.Key_Right,
+                   Qt.Key.Key_Home, Qt.Key.Key_End):
+            if key == Qt.Key.Key_Left:
+                self._caret = max(0, self._caret - 1)
+            elif key == Qt.Key.Key_Right:
+                self._caret = min(len(self.command_buffer), self._caret + 1)
+            elif key == Qt.Key.Key_Home:
+                self._caret = 0
+            else:
+                self._caret = len(self.command_buffer)
+            self._place_caret()
+            return
+
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             # ⚠ 交互规范（2026-10-18 用户定，仿 PyCharm）：
             #   浮层正在提示时，第 1 次回车**只采纳候选**（填进输入行，不发给设备）；
@@ -444,6 +484,7 @@ class TerminalWidget(QWidget):
                 # 执行过的命令收进建议表 —— 下次敲开头就能带出来，且排在最前
                 self.dictionary.mark_used(self.command_buffer)
                 self.command_buffer = ""
+            self._caret = 0            # 新的一行，光标回到输入段开头（=末尾）
             self.hint_popup.hide()
             # 行内容已随每次按键实时下发，回车只需补一个行结束符
             self.raw_input.emit(self.line_ending)
@@ -459,6 +500,7 @@ class TerminalWidget(QWidget):
                 # 同上：设备行上还有字就先认下来，否则退格永远删不掉屏上的字
                 # （缓冲是空的，删的是空字符串，用户看到的就是"删不动"）
                 self.command_buffer = self._device_line_input()
+                self._caret = len(self.command_buffer)
             if not self.command_buffer:
                 # 用户这一行本来就没敲东西 ⇒ 设备那边也没有可退的字符。
                 # 此时**一个字节都不往下发**：锐捷/华为这些真机会把退格原样回显，
@@ -467,17 +509,16 @@ class TerminalWidget(QWidget):
                 # 设备回显的内容不能被删掉）。不发，就不会有这个回显。
                 self._refresh_hint()
                 return
-            self.command_buffer = self.command_buffer[:-1]
-            self._protect_current_line()        # 退格只许删到用户输入段的开头
-            # 退格同样实时下发，让设备端把它的行缓冲一起退掉
-            self.raw_input.emit("\b")
-            # ⚠ 本地**必须**抹掉用户自己敲的那个字符，不能等设备回显：
-            #   设备回显退格这事各厂商不一致 —— 锐捷会回 "\b \b"，华为 VRP 回显输入
-            #   的字符却**不回显退格**（终端该自己擦）。只发不擦，华为上那个字符就
-            #   永远留在屏幕上，用户看到的是"退格删不动"（2026-10-19 反馈）。
-            #   设备要是也回了退格，边界（_protect_current_line）会把它吃掉，不会多删。
-            self._echo_backspace()
-            self._refresh_hint()
+            if self._caret <= 0:
+                # 光标已经在输入段最前面：再往左没有用户内容可删，什么都不做
+                self._place_caret()
+                return
+            # 删的是**光标左边**那个字符，不是行尾那个（2026-10-20 反馈）。
+            # 行中间删字靠 _rewrite_line 把"后半截删掉再补回"发给设备。
+            self._rewrite_line(
+                self.command_buffer[:self._caret - 1]
+                + self.command_buffer[self._caret:],
+                self._caret - 1)
             return
 
         if key == Qt.Key.Key_Up:
@@ -530,12 +571,11 @@ class TerminalWidget(QWidget):
             return
 
         if text and text.isprintable():
-            self.command_buffer += text
-            # 逐字符实时下发：设备自己维护行缓冲，Tab 补全才有内容可补
-            self.raw_input.emit(text)
-            if self.local_echo:
-                self._echo_text(text)
-            self._refresh_hint()
+            # 插在光标处，不是永远接在末尾（行中间补字同理走 _rewrite_line）
+            self._rewrite_line(
+                self.command_buffer[:self._caret] + text
+                + self.command_buffer[self._caret:],
+                self._caret + len(text))
             return
 
         # 其余按键交回默认处理（复制/全选等）
@@ -625,19 +665,103 @@ class TerminalWidget(QWidget):
         return rest
 
     def _recall(self, value: str):
-        """取历史命令：先退格清掉设备当前行，再下发新内容"""
-        old = self.command_buffer
-        if old:
-            self.raw_input.emit("\b" * len(old))
-            # 同退格键：本地一律擦掉（设备不一定回显退格），边界由缓冲区守住
-            for _ in range(len(old)):
-                self._echo_backspace()
-        if value:
-            self.raw_input.emit(value)
+        """取历史命令：把设备那一行整行换成历史内容，光标跟到末尾"""
+        self._rewrite_line(value or "", len(value or ""))
+
+    # ------------------------------------------------------ 行内编辑（光标）
+    def _rewrite_line(self, new_buffer: str, new_caret: int):
+        """把设备那一行改写成 ``new_buffer``，光标落到输入段内 ``new_caret`` 处
+
+        终端本身没有"在行中间插字"的能力：设备只会往行尾追加，退格只会从行尾
+        删。所以任何一次编辑都化成"削掉分叉点之后的那半截，再把新的尾巴补上"：
+
+            old = "show clock"，光标放在 "show|clock" 处按退格
+            → new = "showclock"
+            → 发 6 个 \\b（设备从行尾删掉 "clock"），再补发 "clock"
+
+        纯行尾编辑（普通打字、末尾退格）算出来的 ``drop`` 就是 0 或 1、
+        ``suffix`` 就是那一个字符 —— 与改造前逐字节一致，不引入新行为。
+
+        本地擦除一律做（设备不一定回显退格，见 ``_echo_backspace``）；设备要是
+        也回了退格，``protected_prefix_len`` 那道地板会把它吃掉，不会多删。
+        """
+        old = self.command_buffer or ""
+        new_buffer = new_buffer or ""
+        new_caret = max(0, min(int(new_caret), len(new_buffer)))
+
+        common = 0
+        limit = min(len(old), len(new_buffer))
+        while common < limit and old[common] == new_buffer[common]:
+            common += 1
+        drop = len(old) - common
+        suffix = new_buffer[common:]
+
+        # 先改缓冲再登记地板：地板按**改完之后**的长度算，否则擦除会被自己挡住。
+        # 但擦除阶段要放宽到"公共前缀"——这一段本来就是要删掉的尾巴，
+        # 按新长度算地板，等于让地板把要删的字保护起来（屏幕会残留旧尾巴）。
+        self.command_buffer = new_buffer
+        self._caret = new_caret
+        self._protect_current_line(common)
+
+        for _ in range(drop):
+            self._echo_backspace()
+        if drop:
+            self.raw_input.emit("\b" * drop)
+        if suffix:
+            # 逐字符实时下发：设备自己维护行缓冲，Tab 补全才有内容可补
+            self.raw_input.emit(suffix)
             if self.local_echo:
-                self._echo_text(value)
-        self.command_buffer = value
+                self._echo_text(suffix)
+        # 尾巴补回来了，地板恢复成"提示符 + 整条新输入"
+        self._protect_current_line()
+
+        self._place_caret()
         self._refresh_hint()
+
+    def _prompt_len(self) -> int:
+        """当前行提示符的显示宽度；认不出提示符时返回 0（光标退化成钉在末尾）"""
+        prompt = self._prompt or ""
+        if prompt and self.screen.last_line().startswith(prompt):
+            return len(prompt)
+        return 0
+
+    def _place_caret(self):
+        """把插入光标放到"提示符 + 输入段前 _caret 个字符"处
+
+        光标只在这段里出现：提示符和设备输出都不是用户能改的内容，让光标跑进
+        去只会让下一次退格跳回末尾删字（2026-10-20 反馈）。
+        """
+        if not self.command_buffer:
+            self._caret = 0
+        else:
+            self._caret = max(0, min(self._caret, len(self.command_buffer)))
+        cursor = self.text_edit.textCursor()
+        if cursor.hasSelection():
+            return
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.movePosition(QTextCursor.MoveOperation.StartOfLine)
+        target = min(self._prompt_len() + self._caret,
+                     len(self._display_last_line()))
+        if target > 0:
+            cursor.movePosition(QTextCursor.MoveOperation.Right,
+                                QTextCursor.MoveMode.MoveAnchor, target)
+        self.text_edit.setTextCursor(cursor)
+
+    def _caret_from_cursor(self, cursor):
+        """把显示区里的光标位置换算成输入段下标；点在不该编辑的地方返回 None
+
+        返回 None 表示"这一下点在提示符或设备输出上"——调用方把光标放回行尾，
+        不在这里假装能编辑（那段内容改不了，装成能改只会让下一次退格删错地方）。
+        """
+        line_len = len(self._display_last_line())
+        pos = cursor.positionInBlock()
+        prompt_len = self._prompt_len()
+        if prompt_len <= 0:
+            # 还没认出提示符（例如设备只回了一整行内容）：整行都当设备输出
+            return None
+        if pos <= prompt_len or pos > line_len:
+            return None
+        return min(pos - prompt_len, len(self.command_buffer))
 
     def _display_last_line(self) -> str:
         """显示区最后一行（用来核对"还能不能再删"）"""
@@ -691,13 +815,16 @@ class TerminalWidget(QWidget):
             # 设备重画/改写了当前行：屏幕要整行覆盖，输入缓冲也趁机对一下
             self._sync_line_from_screen()
             self._replace_current_line(clean_text)
+            self._place_caret()     # 设备回显会把光标顶到末尾，这里放回用户的位置
             return
         # 设备把整行当普通内容追加过来（不是 \r 重写）时不会置 stale，
         # 但可能比本地缓冲多了补全内容，也要对一下
         self._sync_line_from_screen()
         if not clean_text:
+            self._place_caret()
             return
         self._append_text(clean_text)
+        self._place_caret()         # 同上：光标停在输入段内，起止不随回显乱跳
 
     def _is_tab_redraw(self, text: str) -> bool:
         """判断本批数据是不是设备对 Tab 的响应（据此决定要不要"就地改写当前行"）
@@ -745,7 +872,7 @@ class TerminalWidget(QWidget):
             return ""
         return line[len(self._prompt):]
 
-    def _protect_current_line(self):
+    def _protect_current_line(self, input_len=None):
         """登记当前行的"可退格起点"：这一行不许退到比 `提示符 + 用户输入` 更短
 
         前面那一段（提示符、设备补全出来的内容）是**设备回显的内容**，退格删到
@@ -757,11 +884,17 @@ class TerminalWidget(QWidget):
         进保护范围，屏幕上就成了"退格删不动"。
         提示符还没认出来（或这一行对不上）时按"整行都是设备内容"处理 —— 宁可
         退不动，也不删设备回显。
+
+        参数:
+            input_len: 显式指定"用户输入段"该有多长。行内编辑（``_rewrite_line``）
+                要分两段用：擦除阶段按**公共前缀**登记，否则地板按改完后的长度算，
+                擦除会被自己挡住；补完尾巴后再恢复成新缓冲的长度。
         """
         line = self.screen.last_line()
         prompt = self._prompt or ""
         if prompt and line.startswith(prompt):
-            floor = len(prompt) + len(self.command_buffer)
+            floor = len(prompt) + (len(self.command_buffer)
+                                   if input_len is None else max(0, int(input_len)))
         else:
             floor = len(line)
         self.screen.set_protected_prefix_len(floor)
@@ -794,6 +927,7 @@ class TerminalWidget(QWidget):
         if pending == self.command_buffer:
             return
         self.command_buffer = pending
+        self._caret = len(self.command_buffer)   # 设备把行改长了（补全）⇒ 光标跟到末尾
         # 命令行被设备改长了（Tab 补全等），浮层里的候选也要跟着换 ——
         # 否则它还是按旧前缀算的那批，采纳下去就补出错命令
         if self.hint_popup.is_active():

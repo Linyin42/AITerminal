@@ -39,6 +39,8 @@ class TerminalBuffer:
         # \r 与 \n 会落在两个包里，若下一批开头的 \n 再算一次换行，
         # 一次回车就会多跳一个空行 —— 用这个标记把重复的 \n 吞掉。
         self._cr_newline_pending = False
+        # 上一批结尾扣下的 "\b "（擦除回显的前半截，见 feed 里的说明）
+        self._pending_echo = ""
         # 当前行**不许退到比它更短**的字符数：这是设备回显出来的那一段
         # （提示符 + 设备补全），退格只删得动用户自己敲进去的尾巴。不设这道线，
         # 按住退格就会把设备已经回显的提示符一个字符一个字符吃掉
@@ -89,6 +91,24 @@ class TerminalBuffer:
         self.current_line_stale = False
         text = self.strip_ansi(data)
         text = _BELL_RE.sub('', text)
+        if self._pending_echo:
+            text = self._pending_echo + text
+            self._pending_echo = ""
+        if not text:
+            return ""
+
+        # 设备的"擦掉一个字符"回显有两种写法：裸 "\b"，和 VT 标准的 "\b \b"
+        # （退格-空格-退格，那个空格是给**真终端**擦屏用的，不是要显示的内容）。
+        # 把空格当普通字符追加，行中间就会凭空多一个空格 —— 光标挪到中间改字时
+        # 一眼就能看见（2026-10-20 真机 console 行内编辑暴露：
+        # "show clok" 中间插 c，屏上成了 "show clo ck"）。
+        while "\b \b" in text:
+            text = text.replace("\b \b", "\b")
+        # 串口按包送达，"\b \b" 可能被拆成两包：结尾若是 "\b " 先扣住，
+        # 等下一批开头那位 "\b" 拼起来再判断（扣住的这段本身没有可显示内容）
+        if text.endswith("\b "):
+            self._pending_echo = "\b "
+            text = text[:-2]
         if not text:
             return ""
 
@@ -226,6 +246,7 @@ class TerminalBuffer:
         self._lines = [""]
         self.current_line_stale = False
         self._cr_newline_pending = False
+        self._pending_echo = ""
 
     def __len__(self):
         return len(self._lines)
