@@ -1,230 +1,249 @@
-# AITerminal
+<div align="center">
 
-集成 AI 辅助功能的网络设备终端工具：SSH / Telnet / Serial(Console) 连接，
-自动分析设备输出并生成下一步配置或排查命令。
+# AITerminal · AI 智能终端
 
-![tech](https://img.shields.io/badge/Python-3.9%2B-blue) ![qt](https://img.shields.io/badge/PyQt6-6.6%2B-green) ![license](https://img.shields.io/badge/license-MIT-lightgrey)
+**把网络设备的命令行，变成能对话、能巡检、能留痕的运维工作台**
+
+SSH / Telnet / 串口 Console / eNSP Pro 四种连法 · AI 辅助排障与命令生成 · 多设备巡检 · 批量下发 · 危险命令闸门
+
+![version](https://img.shields.io/badge/version-0.7.0-blue)
+![python](https://img.shields.io/badge/Python-3.10%2B-3776ab?logo=python&logoColor=white)
+![qt](https://img.shields.io/badge/PyQt6-6.6%2B-41cd52?logo=qt&logoColor=white)
+![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
+![license](https://img.shields.io/badge/license-MIT-green)
+
+<img src="docs/screenshots/01-main.png" alt="AITerminal 主界面" width="100%">
+
+</div>
+
+---
+
+## 目录
+
+- [这是什么](#这是什么)
+- [和普通终端有什么不同](#和普通终端有什么不同)
+- [功能](#功能)
+- [界面](#界面)
+- [快速开始](#快速开始)
+- [第一次连接](#第一次连接)
+- [配置 AI（可选）](#配置-ai可选)
+- [目录结构](#目录结构)
+- [开发与测试](#开发与测试)
+- [安全设计](#安全设计)
+- [已知限制](#已知限制)
+- [文档](#文档)
+- [许可证](#许可证)
+
+## 这是什么
+
+网络设备的日常运维，一半时间花在「敲命令 → 看输出 → 判断下一步」这个循环里。AITerminal 把这个循环做完整：
+
+- **一个终端连到底**：SSH、Telnet、串口 Console、华为 eNSP Pro 仿真设备，四种连法共用同一套终端体验，多标签并行；
+- **AI 看得见屏幕**：把设备输出喂给大模型（Claude / DeepSeek / 任意 OpenAI 兼容接口），让它解释报错、给出下一条命令，而且**命令要不要执行由你点确认**；
+- **能批量、能留痕**：多设备并发巡检、按提示符判断的批量下发、配置快照比对、结果导出 Excel，日志自动落盘。
+
+纯 Python + PyQt6 桌面应用，Windows 单文件 exe、Linux 单文件可执行，不需要装浏览器套壳、不需要后端服务。
+
+## 和普通终端有什么不同
+
+| | MobaXterm / SecureCRT / PuTTY | AITerminal |
+| --- | --- | --- |
+| 连接方式 | SSH / Telnet / Serial | 同上 **+ eNSP Pro 仿真平台直连** |
+| 看懂输出 | 只显示 | AI 解释报错、判断下一步、给出命令 |
+| 命令从哪来 | 自己记 | 本地资料库 → 厂商知识库 → 联网检索，三级兜底 |
+| 批量操作 | 一般没有 | 多设备并发巡检、按提示符批量下发、模板下发 |
+| 危险命令 | 全靠人 | 代码级拦截 + 配置命令二次确认 |
+| 留痕 | 手工复制 | 自动分设备落盘、配置快照行级比对、Excel 导出 |
+| 可被自动化 | 一般没有 | 本地控制通道，允许外部智能体（DSH / MCP）驱动 |
 
 ## 功能
 
-⚠ 下表为【旧版 PyQt6 界面】功能表，部分条目（联网检索/待执行队列/模板库/快照等）现行未必存在；现行功能与维护说明见文末「维护入口」。
+### 连接与终端
 
-- **三种连接方式**：SSH（密码/密钥）、Telnet、Serial Console
-- **Console 兼容性对齐 MobaXterm**：完整帧格式（数据位/校验/停止位）、
-  四种流控、DTR/RTS 电平、**Break 信号（进 BootROM）**、运行时切波特率、
-  字符发送间隔、**断线自动重连**、本地回显、端口枚举带设备描述、端口占用报错可读
-- **多标签会话**：同时管理多台设备，标签可拖动、单独关闭
-- **终端体验**：ANSI 颜色清洗、`\r` 进度条覆盖处理、命令历史（↑↓）、Ctrl+C 中断、批量命令下发
-- **AI 辅助**：识别华为 / H3C / Cisco / 锐捷语法，分析输出 → 生成下一步命令
-  - 建议模式：AI 只给命令，人工确认后执行
-  - 待执行队列：AI 生成的命令入队，勾选后统一下发
-  - 自动模式：输出稳定后自动分析并下发，任务完成自动暂停
-- **多模型提供方**：Anthropic Claude / **DeepSeek** / 任意 **OpenAI 兼容接口**
-  （vLLM、Ollama、中转站）。各家的密钥、模型、接口地址分开保存，切换不互相覆盖
-- **AI 会自己上网查**：内置联网检索（百度 / 必应 / DuckDuckGo / SearXNG，无需额外 Key）。
-  AI 拿不准命令语法或报错含义时输出 `SEARCH: 关键词`，程序检索资料后回填再生成命令；
-  也可以在"资料检索"页签直接提问，回答带可点击的参考来源
-- **AI 会查你本地的资料**：点一个按钮把下载好的命令手册 / 配置案例导入本地资料库，
-  自动抽取正文建索引；查命令时**先查本地资料库，再联网**。
-  支持 PDF / Word / Excel / PPT / txt / md / html / csv / 日志 / 配置 / zip，
-  还带检索测试，能当场验证"AI 到底查不查得到"
-- **越用越厚的命令知识库**：查到的命令点「💾 存为资料」就存回本地资料库，
-  自动带上时间、设备、厂商、标签；下次问同一主题直接命中自己的积累。
-  笔记可按分类/标签/关键词筛选，还能一键合并导出成手册（Markdown 或可打印的 HTML）
-- **屏幕内容可见**：AI 面板实时显示 AI 能看到的设备输出，一眼确认它有没有看全
-- **批量下发按提示符判断**：等设备回到提示符再发下一条，自动翻页、遇到 `[Y/N]` 停下交人工；
-  结果可导出 Excel
-- **多设备并发巡检**：同时对多台设备跑同一组命令，结果导出 Excel
-  （巡检信息 / 巡检汇总 / 命令明细 三个工作表）
-- **安全兜底**：`reboot` / `delete` / `erase` / `undo all` / `factory-reset` 等危险命令代码级拦截
-- **配置命令必须人工确认**：配置类命令下发前先弹出命令清单等你确认；
-  AI 自动模式下生成的配置命令只入待执行队列、不会自动下发
-- **厂商快捷命令**：按厂商提供常用巡检/配置命令，双击即发送
-- **命令模板 + 批量下发**：选模板（创建VLAN/接口IP/静态路由/巡检/备份…）→ 填变量 → 预览 → 按间隔批量下发，危险命令自动跳过
-- **配置快照与比对**：一键采集 `display current-configuration` 快照，行级着色比对两次配置差异，可导出 unified diff
-- **会话恢复**：退出时记住会话列表，下次启动可一键重连
-- **日志自动落盘**：按日期/设备分文件写入 `~/.aiterminal/logs/`，也可一键导出当前终端内容
-- **可编辑系统提示词**：在界面里定制 AI 的行为约束
+- **四种连接**：SSH（密码 / 密钥，Paramiko）、Telnet（含不支持 Telnet 选项的设备回退实现）、串口 Console、华为 eNSP Pro 仿真设备
+- **串口对齐 MobaXterm 的兼容性**：数据位 / 校验位 / 停止位、四种流控、DTR / RTS 电平、**Break 信号**（进 BootROM）、运行时切波特率、字符发送间隔、断线自动重连、端口枚举带设备描述、端口占用报错可读
+- **终端体验**：ANSI 颜色清洗、`\r` 进度条覆盖、命令历史（↑↓）、`Ctrl+F` 在输出里查找、`Ctrl+±` 缩放字号、`Ctrl+C` 中断设备输出、`Ctrl+Shift+C` 复制选区、清屏、一键保存日志
+- **分页自动处理**：遇到 `---- More ----` 自动翻页，长输出不会卡在分屏
+- **设备库**：保存常用设备（不含密码），双击直连，连接状态在左侧实时可见
+- **会话恢复**：退出时记住会话列表，下次一键重连
+
+### AI 助手
+
+- **多提供方**：Anthropic Claude、DeepSeek、任意 OpenAI 兼容接口（vLLM、Ollama、中转站、自建网关），密钥 / 模型 / 接口地址分开保存，切换互不覆盖
+- **两种面板**：`Catty 对话`（自然语言提问 + 解释当前输出）、`AI 高级`（提示词、待执行队列、自动模式）
+- **建议模式**：AI 只给命令，人工确认后才发到设备
+- **自动模式**：输出稳定后自动分析，配置类命令只入待执行队列，不会自己下发
+- **AI 能上网查**：内置联网检索后端（百度 / 必应 / DuckDuckGo / SearXNG），拿不准语法或报错含义时先查资料再回答，回答带可点击来源
+- **本地模型可选**：接 llama.cpp 本地推理与向量检索，断网也能用（`local_llm/`）
+
+### 资料与知识库
+
+- **本地资料库**：把下载好的命令手册、配置案例、培训文档导入，自动抽取正文建索引；查命令时**先查本地，再联网**
+- **格式覆盖**：PDF / Word / Excel / PPT / txt / md / html / csv / 日志 / 配置文件 / zip
+- **厂商知识库**：结构化命令索引（华为 / 新华三 / 思科 / 锐捷），按特性查命令、查示例
+- **沉淀机制**：查到的命令一键存为带元信息（时间 / 设备 / 厂商 / 标签）的笔记，越用越厚；笔记可筛选、合并导出成手册（Markdown / 可打印 HTML）
+
+### 巡检 / 批量 / 变更
+
+- **多设备并发巡检**：同时对多台设备跑同一组命令，结果导出 Excel（巡检信息 / 巡检汇总 / 命令明细 三个工作表）
+- **批量下发**：按提示符判断命令完成，自动翻页，遇到 `[Y/N]` 暂停交人工，结果可导出
+- **命令模板**：创建 VLAN / 配接口 IP / 静态路由 / 巡检 / 备份等模板，填变量 → 预览 → 下发
+- **配置快照与比对**：一键采集 `display current-configuration`，行级着色对比两次配置差异，可导出 unified diff
+- **命令补全**：三层补全（厂商命令 → 模板 → 历史），Tab 触发，输入直接内联显示在终端正文
+
+### 自动化接口
+
+- **本地控制通道**（`core/control_api.py`）：让外部智能体（DSH / MCP）驱动**正在运行的**实例——读屏、写命令、跑巡检，不必截图模拟点击
+
+## 界面
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/02-ai-panel.png" alt="AI 面板"><br><sub>AI 面板：左边对话，右边终端，AI 看得见当前屏幕内容</sub></td>
+<td width="50%"><img src="docs/ui-screens/03-connect-dialog.png" alt="新建连接"><br><sub>新建连接：SSH / Telnet / 串口 / eNSP Pro 四类参数</sub></td>
+</tr>
+</table>
 
 ## 快速开始
 
+### 方式一：直接跑可执行文件（推荐给使用者）
+
+- **Windows**：下载 `AITerminal.exe` 双击运行，无需安装 Python
+- **Linux**：下载 `AITerminal`（单文件 ELF）+ `install.sh`，按 [README-Linux.md](README-Linux.md) 安装
+
+### 方式二：源码运行（推荐给开发者）
+
 ```bash
-# 1. 安装依赖
+git clone https://github.com/Linyin42/AITerminal.git
+cd AITerminal
+
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+source .venv/bin/activate
+
 pip install -r requirements.txt
-
-# 2. 配置 API Key（三选一，在界面右侧 AI 面板里选提供方并填写即可）
-#    a) DeepSeek：提供方选「DeepSeek」，填 sk- 开头的密钥
-#    b) Anthropic Claude：提供方选「Anthropic Claude」，填 sk-ant- 开头的密钥
-#    c) 自建/本地模型：提供方选「OpenAI 兼容接口」，填接口地址与模型名
-#    也可以复制 .env.example 为 .env 并填写 ANTHROPIC_API_KEY
-
-# 3. 运行
 python main.py
 ```
 
-Windows 用户也可以直接双击 `run.bat`（首次运行会自动创建虚拟环境并装依赖）。
+Windows 下也可以直接双击 `run.bat`（首次运行自动创建虚拟环境并装依赖）。
 
-## 接真实设备前先验证（推荐）
+**环境要求**：Python 3.10+（开发与打包实测 CPython 3.12 / 3.13）、PyQt6 6.6+、Paramiko、pyserial。不装 AI 相关依赖也能用——AI 只是增强功能，纯终端部分照常工作。
 
-不用打开界面、也不用把密码贴到任何地方，命令行 5 分钟就能确认链路是否正常：
+### 方式三：接真实设备前先自检
+
+不用打开界面，也不用把密码贴到任何地方，命令行几分钟就能确认链路是否正常：
 
 ```bash
-# 离线自检（不需要设备）
+# 离线自检（不需要设备、不联网）
 python tests/smoke_test.py
 
-# 用内置模拟设备验证整条链路
-python tools/fake_device.py --port 2323 --no-login --paging   # 终端 A
+# 用内置模拟设备跑通整条链路
+python tools/fake_device.py --port 2323 --no-login      # 终端 A
 python tools/verify_device.py --protocol telnet --host 127.0.0.1 --port 2323   # 终端 B
 
-# 验证真实设备（密码交互式输入，不回显、不进历史）
+# 验证真实设备（密码交互式输入，不落历史）
 python tools/verify_device.py --protocol ssh --host 10.0.0.1 --user admin
 python tools/verify_device.py --protocol serial --serial-port COM3 --baudrate 9600
-python tools/verify_device.py --list-ports        # 先看有哪些串口
+python tools/verify_device.py --list-ports
 ```
 
-它会依次报告：连接是否成功 → 厂商识别 → 关闭分屏 → 每条命令能否"等提示符返回"地跑完。
-完整验证流程见 **[docs/验证指南.md](docs/验证指南.md)**（含 14 项验证清单）。
+它会依次报告：连接是否成功 → 厂商识别 → 关闭分屏 → 每条命令能否「等提示符返回」地跑完。完整流程见 [docs/验证指南.md](docs/验证指南.md)。
 
-## 自检
+## 第一次连接
 
-```bash
-python tests/smoke_test.py
-```
+1. 点左上角 **+ 新建**，选协议（SSH / Telnet / Serial / eNSP Pro）填地址与凭据；
+2. 连上后设备自动进左侧**设备库**（不保存密码），下次双击直连；
+3. 华为 / 新华三设备建议先执行 `screen-length 0 temporary`（Cisco 是 `terminal length 0`）关掉分屏；
+4. 需要 AI 时点左侧 ✦ 图标唤出面板，或 `Ctrl+I` 进 AI 自动模式。
 
-不需要真实设备、不联网，覆盖终端缓冲清洗、厂商识别、危险命令拦截、配置读写、
-插件加载、Telnet 回退实现、模板渲染、日志落盘、快照采集、配置比对、
-检索后端 HTML 解析、AI 检索协议与资料回填、串口发送/Break/DTR-RTS/改波特率、
-本地资料库导入与多格式抽取（docx / xlsx / PDF）、本地优先检索链路、
-一键沉淀（笔记落库 / 元信息 / 自动标签 / 增量索引后即可检索）、
-Excel 写入器（多工作表 / 样式 / 非法字符清理 / 读回校验）、
-笔记解析筛选与手册导出（Markdown / HTML / CSV）、
-按提示符判定命令完成（分页翻页 / 确认提示暂停 / 静默兜底 / 缓冲区不被消耗）、
-多设备并发巡检与 Excel/CSV 导出，以及主窗口的建标签 / 输出渲染 / 命令下发链路。
+**连不上时按这个顺序排查**：端口是否被别的软件占用 → 波特率（9600 / 115200）→ 帧格式 8-N-1 → 行结束符用 CR → 丢字符就加字符发送间隔。
 
-## 打包为 exe
+## 配置 AI（可选）
 
-```bash
-build.bat
-# 产物: dist\AITerminal.exe
-```
+在界面右侧 AI 面板里选提供方并填写即可，配置文件落在 `~/.aiterminal/settings.json`：
 
-或使用 setup.py：
+| 提供方 | 需要填 | 说明 |
+| --- | --- | --- |
+| DeepSeek | `sk-` 开头的 API Key | 默认推荐，中文命令理解好 |
+| Anthropic Claude | `sk-ant-` 开头的 API Key | 也可用 `.env` 的 `ANTHROPIC_API_KEY` |
+| OpenAI 兼容接口 | 接口地址 + 模型名 + 可选 Key | vLLM / Ollama / 中转站 / 自建网关 |
+| 本地模型 | 模型文件路径 | 走 llama.cpp，可完全离线 |
 
-```bash
-pip install pyinstaller
-python setup.py build_exe --onefile
-```
+复制 `.env.example` 为 `.env` 可预置 Anthropic 配置；`.env` 已在 `.gitignore` 里，不会被提交。
 
 ## 目录结构
 
 ```
 aiterminal/
-├── main.py             # 入口
-├── core/               # 连接器(SSH/Telnet/Serial)、会话、终端模拟器、AI 智能体、
-│                       # 本地资料库、联网检索、批量下发、并发巡检、笔记手册、
-│                       # Excel 写入、日志、配置比对
-├── ui/                 # 主窗口、终端控件、会话标签、连接对话框、设备库(Vault)、
-│                       # Catty 对话面板、AI 面板、资料库管理、巡检界面、
-│                       # 模板/比对/提示词/串口控制对话框
-├── config/             # 配置读写、预设与厂商命令库、命令模板库
-├── plugins/            # 插件基类与插件管理器
-├── resources/          # 图标、QSS 样式
-├── tools/              # 验证工具：verify_device.py（真机验证）、fake_device.py（模拟设备）
-├── tests/              # 冒烟测试
-└── docs/               # 开发文档、验证指南
+├── main.py              # 入口（同时支持 --script <脚本> 跑随包脚本）
+├── core/                # 连接器（SSH / Telnet / 串口 / eNSP）、会话、终端模拟、
+│                        # AI 智能体、大模型客户端、本地资料库与 RAG、联网检索、
+│                        # 多设备巡检、批量下发、配置比对、安全分级、Excel 写入、
+│                        # 本地控制通道
+├── ui/                  # 主窗口、终端控件、会话标签、设备库、AI 面板 / 对话面板、
+│                        # 巡检 / 模板 / 比对 / 串口控制 / 资料库对话框、主题
+├── engine/              # 引擎侧代码与随包工具
+├── local_llm/           # llama.cpp 本地模型：探测、启动、嵌入、向量检索
+├── config/              # 配置读写、厂商命令库、命令模板
+├── plugins/             # 插件基类与插件管理器
+├── resources/           # 图标与 QSS 样式
+├── docs/                # 开发文档、验证指南、界面截图
+├── tests/               # 冒烟测试、回归测试、模块单测
+├── tools/               # 验证脚本、模拟设备、探测与构建工具
+├── build.spec           # Windows 打包配置（PyInstaller）
+├── build-linux.sh       # Linux 打包脚本
+└── AITerminal-linux.spec# Linux 打包配置
 ```
 
-## 使用提示
+> 厂商知识库（`knowledge/`，体积较大）不随仓库发布，首次使用请在界面里导入资料或按 [docs/README.md](docs/README.md) 的方式本地构建。
 
-- **用自己下载的手册查命令**：工具栏「导入资料」选好文件即可，资料统一放在
-  `~/.aiterminal/knowledge/`（工具菜单「打开资料库目录」可直达）。
-  导入后在「资料库」窗口用检索测试验证一下能不能查到。
-- **把好用的命令沉淀下来**：AI 查到答案后点「💾 存为资料」，会存成带元信息的
-  Markdown 笔记并立刻可检索。用得越久，自己的命令库越厚；笔记就是普通 .md 文件，
-  随时能用编辑器改。
-- **多台设备一起巡检**：工具栏「多设备巡检」勾选设备 → 填命令（或从模板载入）→ 开始，
-  完成后导出 Excel。巡检用独立连接，不影响已经打开的会话。
-- **批量下发建议用"等提示符"**：慢设备或长输出（`display current-configuration`）
-  用固定间隔容易错位；遇到 `---- More ----` 会自动翻页。
-- 登录华为/H3C 设备后建议先执行 `screen-length 0 temporary` 关闭分屏，
-  避免长输出被分页卡住；Cisco 设备对应 `terminal length 0`。
-- 采集配置快照、批量下发之前也建议先关掉分屏。
-- Console 连不上时按这个顺序排查：端口是否被别的软件占用 → 波特率（9600/115200）
-  → 帧格式 8-N-1 → 行结束符用 CR → 丢字符就加字符间隔。
-- 资料检索默认先查本地、再联网；若联网结果不理想可在"资料检索"页签切换后端，
-  或自建 SearXNG 填入地址。
+## 开发与测试
+
+```bash
+python tests/smoke_test.py          # 离线冒烟：不联网、不需要设备，覆盖终端清洗 /
+                                    # 厂商识别 / 危险命令拦截 / 模板 / 日志 / 比对 /
+                                    # 检索 / 串口 / Excel 写出 / 巡检链路
+python tests/regression_fixes.py    # 回归用例（83 项）
+python tests/test_command_safety.py # 只跑危险命令分级
+```
+
+打包：
+
+```bash
+# Windows → dist\AITerminal.exe
+build.bat
+
+# Linux → dist/AITerminal（需要 python3-dev / libgl1 / libxcb-* 等，脚本里已列）
+bash build-linux.sh
+```
+
+## 安全设计
+
+| 机制 | 位置 | 行为 |
+| --- | --- | --- |
+| 危险命令拦截 | `core/ai_agent.py::DANGEROUS_PATTERNS` | `reboot` / `delete` / `erase` / `factory-reset` / `clear configuration` / `undo vlan` 等直接拒绝下发 |
+| 命令安全分级 | `core/safety.py` | 区分只读命令与配置命令，配置命令必须人工确认 |
+| 配置命令二次确认 | `ui/command_confirm.py` | 下发前列出完整命令清单，逐条确认 |
+| 凭据处理 | `config/settings.py` | 设备库不存密码；密码只在内存里传给连接器；`.env` / `settings.json` 不入库 |
+
+**这个工具能让 AI 碰你的生产网络，请先看懂上面这张表再用自动模式。**
+
+## 已知限制
+
+- 主窗口只能拖动自绘标题行移动，缩放靠右下角 `QSizeGrip`；六个功能对话框不可缩放
+- 巡检默认命令集以华为语法为主，跨厂商使用请自备命令或改用模板
+- Linux 版在 Wayland 下依赖系统安装中文字体（Noto CJK / 文泉驿），否则界面中文显示为方块
+- `knowledge/` 厂商知识库未随仓库发布，需要本地导入或构建
+- eNSP Pro 直连需要本机能访问仿真平台的 REST 接口
+- 串口热插拔与「端口正在使用」提示未做完整实测
 
 ## 文档
 
-完整开发文档见 [docs/README.md](docs/README.md)，其中包含架构说明、模块职责、
-数据流设计、v0.2 功能说明、已知限制，以及与设计稿的差异说明（含已修正的 9 处问题）。
+- [docs/README.md](docs/README.md) — 架构说明、模块职责、数据流、功能细节、与设计稿的差异
+- [docs/验证指南.md](docs/验证指南.md) — 14 项真机验证清单
+- [README-Linux.md](README-Linux.md) — Linux 打包、安装、依赖与字体问题
+- [ARCHITECTURE.md](ARCHITECTURE.md) / [API-CONTRACT.md](API-CONTRACT.md) / [FEATURE-TESTS.md](FEATURE-TESTS.md) — 架构、接口契约、功能与测试对照
 
 ## 许可证
 
-MIT License
-
-## 维护入口（2026-10 追加）
-
-### 1. 厂商知识库怎么建、怎么更新
-```powershell
-$env:PYTHONUTF8=1
-python _vendor_cmd_tools\build_vendor_knowledge.py                 # 只建源文件变过的厂商（增量）
-python _vendor_cmd_tools\build_vendor_knowledge.py --vendor h3c     # 单家
-python _vendor_cmd_tools\build_vendor_knowledge.py --rebuild        # 忽略缓存全量重建
-python _vendor_cmd_tools\build_vendor_knowledge.py --out <dir>      # 改输出目录（默认=应用目录/knowledge）
-python _vendor_cmd_tools\build_vendor_knowledge.py --no-verify      # 跳过建库期"索引→锚点"不变量检查
-python _vendor_cmd_tools\build_vendor_knowledge.py --examples-per-feature 500   # 示例上限（默认 500）
-```
-- **产物**：`knowledge/<vendor>/{commands.sqlite, chapters/*.md, examples/*.md, index.json}`。
-- **不变量检查（默认开）**：建完库逐条核对"索引里的每个候选，其 md 里**真的**有那个锚点"；
-  坏指针**不发布**（写进 `index["broken"]`）并**让构建失败**。锚点必须写在 `## 标题` **之后**——
-  读层是从锚点往后切到下一个 `##`，写在前面会切出 0 字符（右栏会误报"没有找到锚点"）。
-- **示例截断如实标注**：统计在 `index.json` 的 `examples_coverage`（含跳过原因），
-  界面左栏会显示"示例收录 X/Y"；**不许静默截断**。
-
-### 2. ⚠ `knowledge/` 必须跟引擎一起同步
-读层 `core/vendor_knowledge.py` 的默认目录是"相对它自己 `core/` 的位置"，而运行时 `core/`
-在构建产物目录 → **改完 Python 或重建完知识库，都要跑**：
-```powershell
-python _automation\ait_sync_engine.py     # 同步 engine/ core/ config/ knowledge/
-```
-不同步的典型症状：知识库建好了、界面却一直 `found=False`。
-
-### 3. 「使用总结」的四层追踪（复现"记一半"用）
-```powershell
-$env:AIT_USAGE_TRACE="$env:TEMP\usage_trace.log"   # 不给就零开销
-# 再启动 AITerminal 复现一次，然后看这个文件：
-#   [L1 C++]     submitLine / sendToSession（命令原文、真实发出的字节 hex）
-#   [L2 rpc]     m_session_write（逐字符 data）/ typed.terminator（攒够一行）
-#   [L3 recorder] note_command / note_output / recorded / downgraded_ok
-#   时间戳 %H:%M:%S，四层可直接按时间对齐
-```
-- `usage.state` / `usage.list` 的返回里带 **`pid`**：一眼分辨"记录器"和"读列表"是不是同一个引擎进程。
-- 记录只存本机 `%APPDATA%\AITerminal\usage-log\YYYY-MM-DD.md`，**不上传**。
-
-### 4. 知识库命令查询的日志
-`knowledge.command` 每次都会写一行引擎日志：
-`layer=sqlite|jsonl vendor=… query=… command=… chapter=… anchor=… available=…`
-—— "右栏落错章节"这类问题直接看日志定位，不必猜。
-
-### 5. 已知未做 / 未验证（评审用）
-
-**能力声明（给用户看的，不是"暂未做"）**
-- **不支持拖边缩放**：主窗口**只能拖动自绘标题行**移动，只有**右下角 `QSizeGrip`** 可缩放；
-  **六个对话框完全不可缩放**。使用说明口径与之保持一致。
-- **P2-5 外框/阴影**：未做 —— 必须与"非客户区=0"、region grab 判据**成对**修改，故未半做。
-
-**终端着色断言的一条用例已移除（如实记录）**
-- 原用例：`DRAM:  512M bytes` 不得上蓝/绿。**移除原因**：该断言读的产物（脚本会打印其
-  绝对路径 + mtime + sha256）里，`lineColors()`（按文本块聚合）与 `runColors()`（按 run
-  切分）对同一条文本给出**归属歧义**，一轮内无法给出确定结论；实测两份导出均为中性
-  `#f3f5fc`（产品行为正确）。为不把"解释不清的红"留在交付状态，移除该用例；
-  DRAM 的"不上琥珀"与"数字中性"分别由反例循环与 `State=` 两条覆盖。
-
-**数据缺口（如实标注，不用 AI 编）**
-- **ruijie `show` 命令参考：缺源，待补**。本机 `_vendor_docs/`、`_vendor_cmd_tools/`、
-  `_vendor_cmd/` 三个目录里都**没有**"锐捷 show 命令参考"类真实文档；现有的
-  `ruijie_n18000/fulltext.txt` 只是配置手册（show 开头仅个位数条 vs h3c display 1767 条）。
-  在找到真实文档之前，界面保持"数据不完整"的如实标注。
-- 串口热插拔未实测；"正在使用"标注未出图。
-
+[MIT](LICENSE) © 2026 Linyin42
