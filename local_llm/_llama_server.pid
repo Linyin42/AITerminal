@@ -1,8 +1,0 @@
-{
-  "pid": 29784,
-  "port": 8080,
-  "model": "Qwen3-4B-Q4_K_M.gguf",
-  "tier": "mid",
-  "device": "(强制指定)",
-  "started": "2026-10-19 18:41:41"
-}

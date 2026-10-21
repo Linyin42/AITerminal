@@ -7,6 +7,7 @@ AI 配置已从侧栏面板搬到「工具(T) → AI 设置…」对话框，
 用本地 mock HTTP 服务器验证成功路径，用关闭端口验证失败路径。
 不需要真实 API Key，也不消耗任何额度。
 """
+import atexit
 import json
 import os
 import sys
@@ -21,6 +22,30 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 from PyQt6.QtWidgets import QApplication
 from config.settings import Settings
+
+# ⚠ 必须把配置写到临时文件：本脚本最后会驱动 on_credentials_changed()，
+#   它内部 `settings.save()` 写的是**真实**配置文件。以前没隔离，跑一次就把用户的
+#   AI 配置改成 provider=openai_compat / key=sk-test-123 / base_url=127.0.0.1:9/v1，
+#   用户那边的"本地模型"选择也就跟着丢了（2026-10-20 实查 settings.json 发现的）。
+_CFG = Settings()
+_ORIG_CFG_FILE = _CFG.config_file
+_ORIG_CFG_DATA = dict(_CFG.data)
+_TMP_CFG = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "_tmp_ai_connection_settings.json")
+_CFG.config_file = _TMP_CFG
+
+
+@atexit.register
+def _restore_real_settings():
+    """还原真实配置（异常退出也要还原）"""
+    _CFG.config_file = _ORIG_CFG_FILE
+    _CFG._data = _ORIG_CFG_DATA
+    try:
+        os.remove(_TMP_CFG)
+    except OSError:
+        pass
+
+
 Settings().set("restore_sessions", False)
 from ui.ai_settings_dialog import AISettingsDialog
 from ui.main_window import MainWindow
