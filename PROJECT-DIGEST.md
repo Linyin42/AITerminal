@@ -1756,4 +1756,24 @@ C++ 那套要改的话是另一轮：`cpp/CMakeLists.txt` 的 target、`cpp/src/
 ⚠️ 注意：DSH 侧注册的 MCP 桥是**已交付的旧副本**（`ait_status` 的状态行仍打印 `AITerminal 0.7.0`），
 协议兼容、不受仓库改名影响 —— 这也正是 17.3 里坚持不改 `serverName` / 桥文件名的原因。
 
+### 17.8 交付目录改名（`D:\ait_delivery`）
+
+旧目录里 6.4 GB 的 `knowledge/`、`llm_data/` 没有重拷，做的是**原地改名 + 换 exe + 改引用**
+（脚本 `tools/migrate_delivery_dir.py`，默认试运行、`--apply` 才动手）：
+
+| 项 | 结果 |
+|---|---|
+| 目录 | `D:\ait_delivery\AITerminal` → `NetOpsTerminal`（顶层只剩新名） |
+| exe | 拷入 `NetOpsTerminal.exe`（69.2 MB，本轮 PyInstaller 产物）；旧 `AITerminal.exe` 存为 `AITerminal.exe.bak-20261022-1830`，没删 |
+| 包内文案 | **59 处**：启动.bat 1、自检.bat 1、换成正式包并刷新图标.bat 13（GBK）、使用说明.txt 2、连接模拟器操作文档.md 6、测试记录 26、data_tools/给AI的说明.md 10 |
+| 包内 MCP 桥 | 用仓库里改名后的版本覆盖（交付机走 `NetOpsTerminal.exe --script data_tools\mcp\aiterminal_mcp.py`） |
+| 打包态验证 | **5/5**：`serverInfo.name` 仍是 `aiterminal`、10 个 `ait_*` 工具齐全、应用没开时提示 `... —— NetOps Terminal 桌面程序可能没在运行`、stderr 无 traceback |
+
+**没动的**：`AITerminal-便携.zip`（6.4 GB，2026-10-18 那版，内容仍是旧名，重打包属另一件事）、
+`AITerminal_fix.exe`（那是另一个修复版二进制，不是本包的正式 exe）、`校验单.txt`（历史记录）。
+
+顺带澄清一处误判：DSH 的 MCP 注册**并不指向交付目录**，而是 `cwd=仓库` + `python -u
+data_tools\mcp\aiterminal_mcp.py`。所以 `ait_status` 打印旧名只是**长驻进程加载的是改名前的代码**，
+DSH 下次重启会自动变成新名，配置一行都不用改。
+
 
