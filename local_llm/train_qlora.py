@@ -238,6 +238,21 @@ def run_sft(args) -> int:
     if not rows:
         print("!! 样本数 0：模板/labels 掩码有问题，中止（否则会白跑一整轮 GPU）")
         return 2
+    if args.sft_sort_len:
+        # 按 token 长度分桶（窗口内打乱）。
+        # 为什么必须：bs=1 时每步样本长度都不同，CUDA 分配器每步都要按新尺寸申请激活块，
+        # 6GB 卡上直接掉进换页区 —— 实测**随机顺序 20 s/步**，而等长块（CPT seq256）只要 1.4 s。
+        # 排序后相邻步长度接近，分配器能复用缓存块；窗口内打乱保留随机性。
+        import random as _random
+        _rng = _random.Random(args.seed)
+        rows.sort(key=lambda r: len(r["input_ids"]))
+        W = 256
+        for _i in range(0, len(rows), W):
+            _part = rows[_i:_i + W]
+            _rng.shuffle(_part)
+            rows[_i:_i + W] = _part
+        lens = [len(r["input_ids"]) for r in rows]
+        print(f"按长度分桶（窗口 {W} 内打乱）：最短 {lens[0]} / 中位 {lens[len(lens)//2]} / 最长 {lens[-1]} token")
     ds = Dataset.from_list(rows)
 
     def collate(features):
@@ -334,6 +349,8 @@ def main() -> int:
     ap.add_argument("--epochs", type=float, default=1.0)
     ap.add_argument("--sft-max-steps", type=int, default=0,
                     help="SFT 显式步数上限（0=按 --epochs 跑；本机必须给，否则会跑满 19,883 步）")
+    ap.add_argument("--sft-sort-len", action="store_true",
+                    help="SFT 按 token 长度分桶排序（6GB 卡必需：否则随机长度顺序会让显存分配抖动到 20 s/步）")
     ap.add_argument("--lora-r", type=int, default=16)
     ap.add_argument("--lora-alpha", type=int, default=32)
     ap.add_argument("--log-every", type=int, default=10)
