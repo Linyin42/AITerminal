@@ -1,4 +1,4 @@
-# AITerminal Linux 桌面版
+# NetOps Terminal Linux 桌面版
 
 面向网络运维的多厂商终端（锐捷 / 华为 / H3C），支持 SSH、Telnet、串口 Console 三条连接路径，
 附带 AI 助手（DeepSeek / Anthropic / 本地模型）、巡检、批量执行和危险命令闸门。
@@ -10,8 +10,8 @@
 ## 1. 跑起来
 
 ```bash
-chmod +x AITerminal
-./AITerminal
+chmod +x NetOps Terminal
+./NetOps Terminal
 ```
 
 装进应用菜单（装到当前用户目录，不需要 sudo）：
@@ -20,7 +20,7 @@ chmod +x AITerminal
 bash install.sh
 ```
 
-装完在应用菜单里搜 “AITerminal”，也可以在命令行跑 `~/.local/share/aiterminal/AITerminal`。
+装完在应用菜单里搜 “NetOps Terminal”，也可以在命令行跑 `~/.local/share/aiterminal/NetOps Terminal`。
 
 ---
 
@@ -88,7 +88,7 @@ Windows 包里的 `knowledge/`（厂商文档切片 + 向量库，约 5 GB）**�
 
 ```
 aiterminal/
-├── AITerminal
+├── NetOps Terminal
 ├── resources/          # 已在包内，无需另放
 └── knowledge/          # 可选，从 Windows 版复制过来
 ```
@@ -106,15 +106,15 @@ uv python install 3.12
 uv venv --python 3.12 .venv-linux
 uv pip install --python .venv-linux/bin/python -r requirements-linux.txt
 
-# 2) 打包（约 70 秒，产物 dist/AITerminal）
+# 2) 打包（约 70 秒，产物 dist/NetOpsTerminal）
 bash build-linux.sh --clean
 ```
 
 产物是 PyInstaller 单文件，校验：
 
 ```bash
-file dist/AITerminal          # ELF 64-bit LSB executable, x86-64
-ldd dist/AITerminal | grep "not found"   # 应该没有任何输出
+file dist/NetOpsTerminal          # ELF 64-bit LSB executable, x86-64
+ldd dist/NetOpsTerminal | grep "not found"   # 应该没有任何输出
 ```
 
 自动化验证脚本（都在 `tools/`）：
@@ -134,11 +134,11 @@ ldd dist/AITerminal | grep "not found"   # 应该没有任何输出
 | 项 | Windows | Linux |
 |---|---|---|
 | 图标 | `app.ico`（多尺寸） | `app.png`（256×256），`.desktop` 引用 |
-| 任务栏分组 | AppUserModelID | `StartupWMClass=AITerminal` |
+| 任务栏分组 | AppUserModelID | `StartupWMClass=NetOps Terminal` |
 | 本地大模型 | 支持（llama.cpp .exe） | 未适配（缺 Linux 版推理后端，AI 走云端 API） |
 | eNSP Pro | 支持 | 支持（纯 HTTP/WebSocket） |
 | 串口 | COM5 | `/dev/ttyUSB0` |
-| 打包 | `build.spec` | `AITerminal-linux.spec`（唯一差异：`icon=None`、`upx=False`） |
+| 打包 | `build.spec` | `NetOpsTerminal-linux.spec`（唯一差异：`icon=None`、`upx=False`） |
 
 ---
 
@@ -151,7 +151,7 @@ ldd dist/AITerminal | grep "not found"   # 应该没有任何输出
 | 串口打不开、`Permission denied` | 不在 `dialout` 组 | 见 §2.3 |
 | `AI 未配置` | 没填 API Key | `工具 → 设置 → API Key` |
 | 打开文档/PDF 无反应 | 缺 `xdg-open` | `sudo apt install xdg-utils` |
-| 高分屏字太小 | HiDPI 缩放 | `QT_SCALE_FACTOR=1.5 ./AITerminal` |
+| 高分屏字太小 | HiDPI 缩放 | `QT_SCALE_FACTOR=1.5 ./NetOps Terminal` |
 
 ---
 
@@ -169,7 +169,7 @@ ldd dist/AITerminal | grep "not found"   # 应该没有任何输出
 最小验收（10 分钟）：
 
 ```bash
-./AITerminal                                  # 1. 界面起来、中文正常
+./NetOps Terminal                                  # 1. 界面起来、中文正常
 # 2. 新建串口连接 → 连上交换机 → show version
 # 3. Ctrl+C 中断一次长输出（应中断，不复制）
 # 4. 在终端里拖选（拖动时不应出现跟随鼠标的插入光标）→ Ctrl+Shift+C → 粘贴到文本编辑器

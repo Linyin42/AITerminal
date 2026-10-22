@@ -9,13 +9,13 @@ sed -i 's/\r$//' "$D/tools/linux_ui_shot.py"
 cd "$D"
 
 echo "=== 1) 主窗口离屏截图 ==="
-QT_QPA_PLATFORM=offscreen ./dist/AITerminal --script tools/linux_ui_shot.py /tmp/ait-linux-ui.png
+QT_QPA_PLATFORM=offscreen ./dist/NetOpsTerminal --script tools/linux_ui_shot.py /tmp/ait-linux-ui.png
 echo "rc=$?"
 ls -l /tmp/ait-linux-ui.png 2>/dev/null | awk '{print "  截图字节:", $5}'
 
 echo "=== 2) 危险命令矩阵（冻结包内）==="
 if [ -f tools/check_danger_fix.py ]; then
-  QT_QPA_PLATFORM=offscreen ./dist/AITerminal --script tools/check_danger_fix.py /tmp/danger-linux.txt
+  QT_QPA_PLATFORM=offscreen ./dist/NetOpsTerminal --script tools/check_danger_fix.py /tmp/danger-linux.txt
   echo "rc=$?"
   head -25 /tmp/danger-linux.txt 2>/dev/null
 else

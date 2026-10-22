@@ -1,5 +1,5 @@
 """
-模拟网络设备 - 没有真实设备时用来验证 AITerminal 的连接/命令/分页链路
+模拟网络设备 - 没有真实设备时用来验证 NetOpsTerminal 的连接/命令/分页链路
 
 它会监听一个 TCP 端口，模拟一台 H3C 交换机的 Console/登录会话：
     · 回显命令、返回提示符 <H3C> / [H3C-GigabitEthernet1/0/1]
@@ -153,7 +153,7 @@ class FakeDevice:
 
     def _serve(self, conn: socket.socket):
         conn.settimeout(0.2)
-        self._send(conn, f"\r\nFake {self.vendor.upper()} device (AITerminal 自测用)\r\n"
+        self._send(conn, f"\r\nFake {self.vendor.upper()} device (NetOpsTerminal 自测用)\r\n"
                          f"Press ENTER to get started.\r\n")
         if self.login:
             self._send(conn, "Login authentication\r\nUsername:")
@@ -382,7 +382,7 @@ def serve(host: str, port: int, vendor: str, paging: bool, login: bool):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="模拟网络设备（AITerminal 自测用）")
+    parser = argparse.ArgumentParser(description="模拟网络设备（NetOpsTerminal 自测用）")
     parser.add_argument("--host", default="127.0.0.1", help="监听地址")
     parser.add_argument("--port", type=int, default=2323, help="监听端口")
     parser.add_argument("--vendor", default="h3c", choices=["h3c", "cisco"],

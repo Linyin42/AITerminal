@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""华为 `.hdx`（eDoc 包）→ AITerminal 技术资料层。
+"""华为 `.hdx`（eDoc 包）→ NetOpsTerminal 技术资料层。
 
 为什么需要这个工具（而不是直接用 doc_to_commands.py）
 ==================================================
@@ -580,7 +580,7 @@ def append_records(recs: list[dict]) -> tuple[str, int]:
 
 # ---------------------------------------------------------------- 主流程
 def main() -> int:
-    ap = argparse.ArgumentParser(description="华为 hdx → AITerminal 技术资料层")
+    ap = argparse.ArgumentParser(description="华为 hdx → NetOpsTerminal 技术资料层")
     ap.add_argument("--hdx", action="append", default=[], help="单个 .hdx（可重复）")
     ap.add_argument("--dir", help="hdx 所在目录（取目录下所有 .hdx）")
     ap.add_argument("--limit", type=int, default=0, help="最多处理几个包")

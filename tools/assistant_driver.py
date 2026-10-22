@@ -9,7 +9,7 @@
 
 为什么用 Playwright + 持久化 profile
 ==================================
-- 应用（AITerminal）不能调用 DSH 的 bsk_* 工具 ⇒ 必须自带浏览器驱动；
+- 应用（NetOpsTerminal）不能调用 DSH 的 bsk_* 工具 ⇒ 必须自带浏览器驱动；
 - `launch_persistent_context(user_data_dir=...)` 把登录态（cookie）落在**磁盘 profile** 里
   ⇒ **登录一次、长期复用**（华为 SSO 到期才需重登，厂商限制，绕不过）；
 - 我们**不复制**用户的密码/cookie ✗，登录动作由用户在自己看得见的窗口里完成 ✓。

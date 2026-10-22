@@ -1,5 +1,5 @@
 """
-主窗口 - AITerminal主界面
+主窗口 - NetOpsTerminal主界面
 """
 import os
 import re
@@ -76,7 +76,7 @@ class ConnectWorker(QThread):
 
 
 class MainWindow(QMainWindow):
-    """AITerminal主窗口"""
+    """NetOpsTerminal主窗口"""
 
     #: 资料库后台索引完成（从工作线程发回主线程，避免跨线程操作界面）
     knowledge_index_done = pyqtSignal(dict)
@@ -240,7 +240,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(6)
         layout.addStretch(1)
 
-        title = QLabel("AITerminal")
+        title = QLabel("NetOps Terminal")
         title.setObjectName("WelcomeTitle")
         layout.addWidget(title)
 
@@ -293,7 +293,7 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         """初始化界面"""
-        self.setWindowTitle("AITerminal - AI智能终端 v0.7")
+        self.setWindowTitle("NetOps Terminal · 网络运维终端 v0.7")
         self.setGeometry(100, 100, 1400, 900)
 
         # 中央区：没开会话时给一页引导（像 IDE 的欢迎页），开会话后换成页签
@@ -617,7 +617,7 @@ class MainWindow(QMainWindow):
 
         # ---------------------------------------------------------- 帮助
         help_menu = menubar.addMenu("帮助(&H)")
-        act_about = QAction("关于 AITerminal", self)
+        act_about = QAction("关于 NetOps Terminal", self)
         act_about.triggered.connect(self.show_about)
         help_menu.addAction(act_about)
 
@@ -2681,7 +2681,7 @@ class MainWindow(QMainWindow):
 
     def build_note_meta(self, session) -> dict:
         """整理这份笔记的来源信息"""
-        meta = {"来源": "AITerminal AI 助手"}
+        meta = {"来源": "NetOps Terminal AI 助手"}
         if not session:
             return meta
         target = session.config.get('host', '') or session.config.get('serial_port', '')
@@ -2935,8 +2935,8 @@ class MainWindow(QMainWindow):
 
     def show_about(self):
         QMessageBox.about(
-            self, "关于 AITerminal",
-            "<h3>AITerminal v0.7</h3>"
+            self, "关于 NetOps Terminal",
+            "<h3>NetOps Terminal v0.7</h3>"
             "<p>集成 AI 辅助功能的网络设备终端工具。</p>"
             "<p>支持 SSH / Telnet / Serial 连接，可分析设备输出并生成配置命令；"
             "提供命令模板批量下发、配置快照比对、会话日志落盘、会话恢复等运维能力。</p>"

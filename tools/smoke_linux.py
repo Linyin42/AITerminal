@@ -1,7 +1,7 @@
-"""Linux 冒烟脚本：由冻结后的 AITerminal --script 调用，验证随包资源与 Qt GUI 栈。
+"""Linux 冒烟脚本：由冻结后的 NetOpsTerminal --script 调用，验证随包资源与 Qt GUI 栈。
 
 用法:
-    ./dist/AITerminal --script tools/smoke_linux.py /tmp/smoke-linux.json
+    ./dist/NetOpsTerminal --script tools/smoke_linux.py /tmp/smoke-linux.json
     # 返回码: 0=全部通过  3=GUI 子项失败  4=资源缺失
 
 它**不连任何设备**，只回答三个问题：
@@ -46,7 +46,7 @@ def main() -> int:
         from PyQt6.QtWidgets import QApplication, QLabel
 
         app = QApplication([])
-        w = QLabel("AITerminal smoke")
+        w = QLabel("NetOpsTerminal smoke")
         w.resize(320, 120)
         w.show()
         app.processEvents()

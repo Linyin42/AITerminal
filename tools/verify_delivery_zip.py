@@ -3,8 +3,8 @@
 为什么要有它：出包后最容易出的错是"压缩包与目录不一致"（漏文件、多文件、同名不同
 内容、打包中断留半截），而这类错在交付现场才暴露。用法（2026-10-17 首用）：
 
-    python tools\\verify_delivery_zip.py --zip D:\\ait_delivery\\AITerminal-便携.zip ^
-                                        --dir D:\\ait_delivery\\AITerminal --crc
+    python tools\\verify_delivery_zip.py --zip D:\\ait_delivery\\NetOpsTerminal-便携.zip ^
+                                        --dir D:\\ait_delivery\\NetOpsTerminal --crc
 
 退出码 0 = 完全一致；1 = 有差异（差异明细打印在最前面，最多 20 条）。
 """
@@ -53,8 +53,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--zip", required=True, dest="zp")
     ap.add_argument("--dir", required=True, dest="dr")
-    ap.add_argument("--prefix", default="AITerminal/",
-                    help="zip 内的顶层前缀（默认 AITerminal/）")
+    ap.add_argument("--prefix", default="NetOpsTerminal/",
+                    help="zip 内的顶层前缀（默认 NetOpsTerminal/）")
     ap.add_argument("--crc", action="store_true", help="逐条目 CRC 校验（慢，~1 分钟）")
     a = ap.parse_args()
 

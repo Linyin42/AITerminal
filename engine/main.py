@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AITerminal Python 引擎入口。
+"""NetOpsTerminal Python 引擎入口。
 
 C++/Qt6 界面（cpp/）把这个进程当作后端：
     python -u engine/main.py
@@ -62,7 +62,7 @@ def main() -> int:
     server = JsonRpcServer(emitter, service.dispatch, shutdown=service.shutdown,
                            slow_methods=service.SLOW_METHODS)
 
-    log("info", "AITerminal 引擎启动中，python=%s" % sys.version.split()[0])
+    log("info", "NetOpsTerminal 引擎启动中，python=%s" % sys.version.split()[0])
     try:
         return server.serve_forever()
     except KeyboardInterrupt:

@@ -58,7 +58,7 @@ def dump(res, max_items=3, max_steps=3):
 
 
 print("=" * 78)
-print("AITerminal 命令自动补全自测  commands.suggest")
+print("NetOpsTerminal 命令自动补全自测  commands.suggest")
 print("=" * 78)
 
 # ---------------------------------------------------------------- 0. 数据规模

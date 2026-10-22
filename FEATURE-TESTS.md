@@ -1,4 +1,4 @@
-# AITerminal 逐功能验收测试清单（FEATURE-TESTS）
+# NetOps Terminal 逐功能验收测试清单（FEATURE-TESTS）
 
 > 状态：**清单骨架（第 1 步）** —— 尚未开测。经确认后按本表逐条实测并回填「结果 / 证据」。
 > 生成依据（全部实读，非记忆）：
@@ -17,7 +17,7 @@
 - **文档口径**：文档怎么写的就怎么判；**文档与实现不一致 = FAIL 或"文档待改"**（报告里写清哪边错）
 - **FAIL 必写**：现象 + 复现步骤 + 期望 vs 实际
 - **UNVERIFIED 必写**：为什么（需真 AI key / 需另一台设备 / 需人工键盘操作不可自动化 …）
-- **纪律**：每步之间 kill `AITerminal.exe`；UI/失活类用例前先最小化 DSH/Chrome；改过 Python 先跑 `ait_sync_engine.py`；改过 `dark.qss` 先跑 token 检查；图必须 `grab()` 或 `--screenshot=`（不抓屏）
+- **纪律**：每步之间 kill `NetOpsTerminal.exe`；UI/失活类用例前先最小化 DSH/Chrome；改过 Python 先跑 `ait_sync_engine.py`；改过 `dark.qss` 先跑 token 检查；图必须 `grab()` 或 `--screenshot=`（不抓屏）
 
 ## 总表
 
@@ -144,7 +144,7 @@
 - `ait_usage_log_check.py` **31/0**，逐条覆盖：默认不记录(active=False reason=off)、未问 AI 不入账(total=0)、触发①(进「我问过的问题」/reason=ai-window)、触发②(reason=monitor)、`display versionn`→命令写错、`Request time out`→疑似不通(dead=1 wrong=0)、成功命令去重(ok=1)、排错链闭环(`resolved=True, resolved_by=2, steps=[2]`)、分页提示不算错误、5s 内重复只记 1 条、超时后可用示例为空、无 AI 退化纯列表、落盘日期文件 + `<a id="eN">` 锚点、升级只生成"未入库/人工确认"候选
 - K5 空态+禁用态 / K7 状态栏「记录中」「已暂停」PASS（视觉，复用交付集 `09-usage-empty.png` 与 `12-iface-amber.png`、`13-autocmd-display-version.png`）
 - K6 复制 Markdown → 进待补表
-- ⚠ 真实目录污染已处置：`%APPDATA%\AITerminal\usage-log\2026-10-03.md`（探针记录：`H3C 上怎么关掉分页？`、`ping -c 1 10.255.255.1`、`display version`×22）→ 先备份再移出到 `_shots\round08-impl\usage-log-moved\`（未删除、可回滚）
+- ⚠ 真实目录污染已处置：`%APPDATA%\NetOps Terminal\usage-log\2026-10-03.md`（探针记录：`H3C 上怎么关掉分页？`、`ping -c 1 10.255.255.1`、`display version`×22）→ 先备份再移出到 `_shots\round08-impl\usage-log-moved\`（未删除、可回滚）
 
 ### L 窗口 / 菜单 / 快捷键
 | 编号 | 功能 | 入口 | 期望行为 | 依赖 | 文档出处 |
@@ -256,8 +256,8 @@
 ```
 【发现】两个数据根
   配置/资料库根: C:\Users\linyin\.aiterminal\        ← knowledge.root 与 使用说明.txt:60-63 都指向这里
-  usage-log 根 : C:\Users\linyin\AppData\Roaming\AITerminal\usage-log\
-  现象: %APPDATA%\AITerminal\config.json 不存在（真实配置不在那儿）
+  usage-log 根 : C:\Users\linyin\AppData\Roaming\NetOps Terminal\usage-log\
+  现象: %APPDATA%\NetOps Terminal\config.json 不存在（真实配置不在那儿）
   影响: ① 菜单「打开日志目录」与用户以为的程序目录不是同一处，用户找不到自己的记录；
         ② 备机/迁移只搬一个根会丢一半数据；③ 卸载清理不彻底。
   待决策: 是否统一到一个根（建议 ~\.aiterminal\，与文档一致），并对旧路径做一次性迁移/提示。

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# AITerminal Linux 安装脚本（不需要 sudo：默认装到当前用户的 ~/.local）
+# NetOpsTerminal Linux 安装脚本（不需要 sudo：默认装到当前用户的 ~/.local）
 #
 # 两种目录布局都支持：
-#   A) 交付包目录：AITerminal 与 install.sh 并排
-#   B) 源码构建目录：dist/AITerminal（或上层目录的 dist/）
+#   A) 交付包目录：NetOpsTerminal 与 install.sh 并排
+#   B) 源码构建目录：dist/NetOpsTerminal（或上层目录的 dist/）
 #
 # 用法:
 #   bash install.sh                          # 装到 ~/.local/share/aiterminal
@@ -24,17 +24,17 @@ while [ $# -gt 0 ]; do
 done
 
 # ---- 找二进制与资源
-if [ -x "$HERE/dist/AITerminal" ]; then
-    SRC_DIR="$HERE"; BIN="$HERE/dist/AITerminal"
-elif [ -x "$HERE/AITerminal" ]; then
-    SRC_DIR="$HERE"; BIN="$HERE/AITerminal"
-elif [ -x "$HERE/../dist/AITerminal" ]; then
-    SRC_DIR="$(cd "$HERE/.." && pwd)"; BIN="$SRC_DIR/dist/AITerminal"
-elif [ -x "$PWD/dist/AITerminal" ]; then
+if [ -x "$HERE/dist/NetOpsTerminal" ]; then
+    SRC_DIR="$HERE"; BIN="$HERE/dist/NetOpsTerminal"
+elif [ -x "$HERE/NetOpsTerminal" ]; then
+    SRC_DIR="$HERE"; BIN="$HERE/NetOpsTerminal"
+elif [ -x "$HERE/../dist/NetOpsTerminal" ]; then
+    SRC_DIR="$(cd "$HERE/.." && pwd)"; BIN="$SRC_DIR/dist/NetOpsTerminal"
+elif [ -x "$PWD/dist/NetOpsTerminal" ]; then
     # 在源码根目录执行 `bash packaging/install-linux-user.sh` 的情况
-    SRC_DIR="$PWD"; BIN="$PWD/dist/AITerminal"
+    SRC_DIR="$PWD"; BIN="$PWD/dist/NetOpsTerminal"
 else
-    echo "找不到 AITerminal 可执行文件。若是源码目录，先跑 bash build-linux.sh" >&2
+    echo "找不到 NetOps Terminal 可执行文件。若是源码目录，先跑 bash build-linux.sh" >&2
     exit 2
 fi
 
@@ -45,12 +45,12 @@ for c in "$SRC_DIR/resources/icons/app.png" "$SRC_DIR/app.png" "$HERE/app.png"; 
     [ -f "$c" ] && { ICON_SRC="$c"; break; }
 done
 
-echo "== 安装 AITerminal =="
+echo "== 安装 NetOps Terminal =="
 echo "   二进制: $BIN"
 echo "   目标:   $PREFIX"
 
 mkdir -p "$PREFIX"
-install -m 0755 "$BIN" "$PREFIX/AITerminal"
+install -m 0755 "$BIN" "$PREFIX/NetOpsTerminal"
 
 # 资源：源码布局直接整个拷；交付布局只有 app.png，就补一个最小 resources/icons
 rm -rf "$PREFIX/resources"
@@ -73,17 +73,17 @@ APPS_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
 mkdir -p "$APPS_DIR" "$ICON_DIR"
 
-DESKTOP_SRC="$HERE/aiterminal.desktop"
-[ -f "$DESKTOP_SRC" ] || DESKTOP_SRC="$HERE/packaging/aiterminal.desktop"
+DESKTOP_SRC="$HERE/netops-terminal.desktop"
+[ -f "$DESKTOP_SRC" ] || DESKTOP_SRC="$HERE/packaging/netops-terminal.desktop"
 if [ -f "$DESKTOP_SRC" ]; then
     sed -e "s|/opt/aiterminal|$PREFIX|g" \
         -e "s|^Icon=.*|Icon=$PREFIX/resources/icons/app.png|" "$DESKTOP_SRC" \
-        > "$APPS_DIR/aiterminal.desktop"
-    echo "   启动器: $APPS_DIR/aiterminal.desktop"
+        > "$APPS_DIR/netops-terminal.desktop"
+    echo "   启动器: $APPS_DIR/netops-terminal.desktop"
 fi
 if [ -n "$ICON_SRC" ]; then
-    install -m 0644 "$ICON_SRC" "$ICON_DIR/aiterminal.png"
-    echo "   图标:   $ICON_DIR/aiterminal.png"
+    install -m 0644 "$ICON_SRC" "$ICON_DIR/netops-terminal.png"
+    echo "   图标:   $ICON_DIR/netops-terminal.png"
 fi
 
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS_DIR" >/dev/null 2>&1 || true
@@ -91,6 +91,6 @@ command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t 
 
 echo
 echo "安装完成："
-echo "  程序:   $PREFIX/AITerminal"
-echo "  运行:   $PREFIX/AITerminal"
-echo "  菜单:   应用列表里搜 AITerminal"
+echo "  程序:   $PREFIX/NetOpsTerminal"
+echo "  运行:   $PREFIX/NetOpsTerminal"
+echo "  菜单:   应用列表里搜 NetOps Terminal"

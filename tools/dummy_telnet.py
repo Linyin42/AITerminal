@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """假设备：一个最小的 telnet 服务器，给「接管通道」做端到端演示与测试。
 
-用途：手边没有真机时，让 AITerminal 通过 127.0.0.1 连上来，验证
+用途：手边没有真机时，让 NetOpsTerminal 通过 127.0.0.1 连上来，验证
 open → send → read → close 整条链路（含分页、回显、提示符判定）。
 
 跑法：
     python tools\\dummy_telnet.py                 # 默认 127.0.0.1:23001
     python tools\\dummy_telnet.py --port 23002
 
-说明：不实现 telnet 选项协商（对 IAC 一律回 WONT/DONT），够 AITerminal 用。
+说明：不实现 telnet 选项协商（对 IAC 一律回 WONT/DONT），够 NetOpsTerminal 用。
 """
 import argparse
 import socket

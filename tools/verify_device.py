@@ -67,7 +67,7 @@ OK_STATUSES = ("prompt", "silence", "delay")
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="验证设备连通性与命令执行（AITerminal）",
+        description="验证设备连通性与命令执行（NetOpsTerminal）",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--protocol", default="ssh",
@@ -255,7 +255,7 @@ def main():
         or list(DEFAULT_COMMANDS)
 
     print("=" * 62)
-    print(f"AITerminal 设备验证  协议={args.protocol.upper()}  目标={target}")
+    print(f"NetOpsTerminal 设备验证  协议={args.protocol.upper()}  目标={target}")
     print(f"用户名={args.user or '(无)'}  等待方式="
           f"{'固定间隔 %.1fs' % args.delay if args.delay_mode else '等提示符返回'}")
     print(f"将执行 {len(commands)} 条命令: {', '.join(commands)}")

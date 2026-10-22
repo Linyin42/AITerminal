@@ -11,7 +11,7 @@ r"""交付机自检：这套"本地 LLM"拷过来之后，到底能不能跑。
     python verify_delivery.py            # 清单 + 档位判定（**只读，不启动任何服务**）
     python verify_delivery.py --live     # 再真起一次服务、发一句话、然后停掉（这才是真验收）
     python verify_delivery.py --report 自检报告.txt   # 顺手落一份报告（打包态无控制台时看它）
-    #   打包态（exe 无控制台）：`AITerminal.exe --script <自检目录>\verify_delivery.py --report ...`
+    #   打包态（exe 无控制台）：`NetOpsTerminal.exe --script <自检目录>\verify_delivery.py --report ...`
 
 退出码：0 = 必查项全过（可能有可选性 WARN）；1 = 有必查项 FAIL。
 """

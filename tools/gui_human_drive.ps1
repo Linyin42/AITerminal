@@ -1,11 +1,11 @@
-# 像人一样驱动 AITerminal：真实鼠标 / 键盘（Win32 SendInput）+ 窗口截图取证
+# 像人一样驱动 NetOpsTerminal：真实鼠标 / 键盘（Win32 SendInput）+ 窗口截图取证
 #
 # 为什么要有这个脚本：控件级用例（QKeyEvent 直喂）证明不了"人真的这样用的时候行不行"——
 # 它绕过了窗口、焦点、真实按键映射。这台机器上的用户反馈（点哪光标跳哪、退格删不动、
 # 提示符被吃掉）全是"人用鼠标键盘"时才暴露的，所以复验也必须这么来。
 #
 # 用法：
-#   pwsh -File tools\gui_human_drive.ps1 -ExePath D:\ait_delivery\AITerminal\AITerminal_fix.exe `
+#   pwsh -File tools\gui_human_drive.ps1 -ExePath D:\ait_delivery\NetOpsTerminal\NetOpsTerminal_fix.exe `
 #                                         -ShotDir $env:TEMP\ait_gui
 #   pwsh -File tools\gui_human_drive.ps1 -Pid 31988 -ShotDir ... -ShotOnly
 #   pwsh -File tools\gui_human_drive.ps1 -Pid 123 -Script $env:TEMP\steps.txt -ShotDir ...
@@ -23,7 +23,7 @@
 param(
     [string]$ExePath = "",
     [int]$TargetPid = 0,
-    [string]$TitleLike = "AITerminal",
+    [string]$TitleLike = "NetOpsTerminal",
     [string]$Script = "",
     [string]$ShotDir = "$env:TEMP\ait_gui",
     [switch]$ShotOnly,

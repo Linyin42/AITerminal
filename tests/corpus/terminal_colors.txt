@@ -1,5 +1,5 @@
 # 终端三色 固定语料（S2 确定性基线输入）
-# 用法（下一步实现）：AITerminal.exe --feed-colors=tests/corpus/terminal_colors.txt --screenshot=<png>
+# 用法（下一步实现）：NetOpsTerminal.exe --feed-colors=tests/corpus/terminal_colors.txt --screenshot=<png>
 #   把每行灌进真实 TerminalView（走正常 putRun 路径）→ 导出 runColors() → 基线 = 语料 → 逐 run 颜色
 # 约定：`#CASE <id> | <说明>` 是注释行（不喂给终端），其后紧跟 1..n 行是要喂的原文。
 # 判定口径（现状实现，必须保持等价）：

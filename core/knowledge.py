@@ -915,7 +915,7 @@ class KnowledgeBase:
         lines.append((content or "").strip())
         lines.append("")
         lines.append("---")
-        lines.append("*由 AITerminal 保存，可被本地资料库检索*")
+        lines.append("*由 NetOpsTerminal 保存，可被本地资料库检索*")
 
         try:
             with open(dest, 'w', encoding='utf-8') as f:

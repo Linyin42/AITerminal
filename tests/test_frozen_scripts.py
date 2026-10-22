@@ -2,7 +2,7 @@
 """验证 P5-2「打包（PyInstaller onefile）态也能跑随包脚本」的改造。
 
 为什么必须有这个用例 —— 三条都是真实硬伤，且都只在**交付机**上暴露：
-  · 打包后 `sys.executable` 是 **AITerminal.exe 本身**：`[sys.executable, "probe_tier.py"]`
+  · 打包后 `sys.executable` 是 **NetOpsTerminal.exe 本身**：`[sys.executable, "probe_tier.py"]`
     会被当成"再开一个应用"，脚本根本不跑（改造前 5 处都是这个写法）。
     ⇒ 断言 `script_cmd()` 两态产出不同命令行，且 `main.py --script` 真能跑起来、退出码透传。
   · 打包态 exe 是 windowed（**无控制台**）⇒ 子进程 stdout 拿不到，"打印结果让父进程读"
@@ -85,7 +85,7 @@ def main():
     real_exe = sys.executable
     try:
         sys.frozen = True                                   # type: ignore[attr-defined]
-        sys.executable = os.path.join(tempfile.gettempdir(), "AITerminal.exe")
+        sys.executable = os.path.join(tempfile.gettempdir(), "NetOpsTerminal.exe")
         cmd = app_paths.script_cmd("x.py", "--json", "--out", "o.json")
         check("打包态 script_cmd = [exe, --script, 脚本, ...]（不是再开一个应用）",
               cmd[:3] == [sys.executable, "--script", "x.py"] and cmd[3:] == ["--json", "--out", "o.json"],

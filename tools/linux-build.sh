@@ -41,9 +41,9 @@ PY="$VENV/bin/python" bash build-linux.sh > "$LOG" 2>&1 || {
 grep -E "^(产物|大小|SHA256|耗时)" "$LOG" || tail -20 "$LOG"
 
 echo "== [4/4] 产物校验 =="
-file dist/AITerminal | cut -c1-160
-ls -l dist/AITerminal | awk '{print "   字节:", $5}'
-echo "   动态库依赖数: $(ldd dist/AITerminal 2>/dev/null | wc -l)"
-missing=$(ldd dist/AITerminal 2>/dev/null | grep -c "not found" || true)
+file dist/NetOpsTerminal | cut -c1-160
+ls -l dist/NetOpsTerminal | awk '{print "   字节:", $5}'
+echo "   动态库依赖数: $(ldd dist/NetOpsTerminal 2>/dev/null | wc -l)"
+missing=$(ldd dist/NetOpsTerminal 2>/dev/null | grep -c "not found" || true)
 echo "   缺失依赖: $missing"
 echo "   ✅ 构建完成"

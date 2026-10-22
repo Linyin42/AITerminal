@@ -67,7 +67,7 @@ def script_cmd(py_file: str, *args) -> list:
     """把"跑一个随包脚本"表达成命令行。
 
     · 源码态：`[python.exe, 脚本.py, ...]`
-    · 打包态：`[AITerminal.exe, --script, 脚本.py, ...]`
+    · 打包态：`[NetOpsTerminal.exe, --script, 脚本.py, ...]`
       —— onefile 下 `sys.executable` 就是应用本体，直接 `[sys.executable, 脚本.py]`
       会被当成"再开一个应用"，而永远不会跑那个脚本。`main.py` 需要在建界面**之前**
       处理 `--script`（用 `runpy.run_path` 跑完就 `sys.exit`）。

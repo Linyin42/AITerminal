@@ -207,14 +207,14 @@ def write_xlsx(path: str, sheets: List[Tuple[str, Sequence[Sequence]]],
         'xmlns:dc="http://purl.org/dc/elements/1.1/" '
         'xmlns:dcterms="http://purl.org/dc/terms/" '
         'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">'
-        '<dc:creator>AITerminal</dc:creator>'
+        '<dc:creator>NetOpsTerminal</dc:creator>'
         f'<dcterms:created xsi:type="dcterms:W3CDTF">{timestamp}</dcterms:created>'
         '</cp:coreProperties>'
     )
     app_props = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">'
-        '<Application>AITerminal</Application></Properties>'
+        '<Application>NetOpsTerminal</Application></Properties>'
     )
 
     try:

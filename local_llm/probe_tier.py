@@ -16,7 +16,7 @@
 
 用法:
     python probe_tier.py                       # 人读
-    python probe_tier.py --json                # 给程序读（源码态下 AITerminal 用的就是这个）
+    python probe_tier.py --json                # 给程序读（源码态下 NetOpsTerminal 用的就是这个）
     python probe_tier.py --json --out out.json # 打包态：windowed exe **拿不到子进程 stdout**，
                                                # 调用方只能从 --out 的文件里读回结果
                                                # （见 core/local_model.probe()）
@@ -188,7 +188,7 @@ def collect():
         "ram_need_gb": round(ram_need, 2),
         "ram_ok": ram_ok,
         "ram_note": ram_note,
-        # 把根目录与模型目录一并报出去，调用方（如 AITerminal 的 core/local_model.py）
+        # 把根目录与模型目录一并报出去，调用方（如 NetOpsTerminal 的 core/local_model.py）
         # 就不用自己再硬编码一份 `D:\ait_llm\models` —— 少一处"同一事实两处写"。
         "root": paths.ROOT,
         "models_dir": paths.MODELS,

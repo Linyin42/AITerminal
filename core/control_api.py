@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""本地控制通道：让外部智能体（DSH / MCP）驱动**正在运行的** AITerminal。
+"""本地控制通道：让外部智能体（DSH / MCP）驱动**正在运行的** NetOpsTerminal。
 
 为什么是自己实现的回环 HTTP，而不是复用 engine/：
     engine/main.py 的 stdio JSON-RPC 是"C++ 版界面的接入面"：它另起一个进程、有
@@ -32,7 +32,7 @@ from urllib.parse import urlparse, parse_qs
 CONTROL_FILE = os.path.join(os.path.expanduser("~"), ".aiterminal", "control.json")
 #: 命令级审计日志（谁在什么时候往哪台设备发了什么）
 AUDIT_FILE = os.path.join(os.path.expanduser("~"), ".aiterminal", "control-audit.log")
-APP_NAME = "AITerminal"
+APP_NAME = "NetOps Terminal"
 
 #: 每个会话保留的输出上限（字符）；超出丢最旧的，够模型读回上文
 FEED_LIMIT = 512 * 1024
@@ -504,7 +504,7 @@ class ControlServer:
 
 
 class _Handler(BaseHTTPRequestHandler):
-    server_version = "AITerminalControl/1.0"
+    server_version = "NetOpsTerminalControl/1.0"
 
     def _reply(self, payload, code=200):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")

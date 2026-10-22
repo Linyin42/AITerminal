@@ -67,7 +67,7 @@ def main():
     os.makedirs(os.path.join(tmp, "_vendor_cmd", "h3c"), exist_ok=True)
     try:
         sys.frozen = True                       # type: ignore[attr-defined]
-        sys.executable = os.path.join(tmp, "AITerminal.exe")
+        sys.executable = os.path.join(tmp, "NetOpsTerminal.exe")
         check("打包态 is_frozen() 为真", app_paths.is_frozen() is True)
         check("打包态 base_dir() = exe 所在目录（不是 _MEIPASS）",
               os.path.abspath(app_paths.base_dir()) == os.path.abspath(tmp),

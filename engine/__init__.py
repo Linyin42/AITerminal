@@ -1,4 +1,4 @@
-"""AITerminal Python 引擎。
+"""NetOpsTerminal Python 引擎。
 
 这个包把已有的 core/ 能力包装成 JSON-RPC 服务，供 C++/Qt6 界面调用。
 设计约束（来自对 core/ 的实测结论）：

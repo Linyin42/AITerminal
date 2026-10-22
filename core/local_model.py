@@ -274,7 +274,7 @@ def decide(p_info=None, s_info=None):
 def start_server(port=DEFAULT_PORT, timeout=300):
     """拉起本地 llama-server。**唯一实现**：AI 设置对话框的按钮与「开机自启」都走这里。
 
-    打包态经 `app_paths.script_cmd` 变成 `AITerminal.exe --script run_server.py`，
+    打包态经 `app_paths.script_cmd` 变成 `NetOpsTerminal.exe --script run_server.py`，
     源码态直接 python 跑脚本 —— 两种情况交付机都不需要装 Python。
     返回 `(ok, 说明文本)`；**不抛异常**。
     """

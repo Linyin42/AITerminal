@@ -198,7 +198,7 @@ def ensure_chat_server():
     if chat_up():
         return
     print("对话服务未在跑 → 自动起（run_server.py）", flush=True)
-    # 经 paths.script_cmd：打包态下 sys.executable 是 AITerminal.exe 本身，直接拼会
+    # 经 paths.script_cmd：打包态下 sys.executable 是 NetOpsTerminal.exe 本身，直接拼会
     # "再开一个应用"而不是起服务（见 core/app_paths.script_cmd）。
     subprocess.run(paths.script_cmd(os.path.join(HERE, "run_server.py")),
                    capture_output=True, text=True, timeout=600)

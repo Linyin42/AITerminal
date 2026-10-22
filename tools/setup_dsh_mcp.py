@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""给 DSH 的 desktop profile 补一条 MCP 客户端条目 —— 让 DSH 能驱动 AITerminal。
+"""给 DSH 的 desktop profile 补一条 MCP 客户端条目 —— 让 DSH 能驱动 NetOpsTerminal。
 
 用法（本机开发环境，用系统 Python 跑桥）：
     python tools\\setup_dsh_mcp.py
-交付机 / 打包态（用 AITerminal.exe 的 --script 通道跑同一个桥）：
-    python tools\\setup_dsh_mcp.py --exe "D:\\ait_delivery\\AITerminal\\AITerminal.exe"
+交付机 / 打包态（用 NetOpsTerminal.exe 的 --script 通道跑同一个桥）：
+    python tools\\setup_dsh_mcp.py --exe "D:\\ait_delivery\\NetOpsTerminal\\NetOpsTerminal.exe"
 
 做的事：
     1. 备份 ~/.dsh/profiles/desktop/cordis.patch.yml（同名 .bak-<日期时间>）
@@ -135,7 +135,7 @@ def main():
         fh.write(new_text)
     print(f"{action} 完成；备份：{backup}")
     print("接着：重启 DSH 桌面客户端，之后会看到工具 mcp__aiterminal__ait_send 等 10 个。")
-    print("注意：AITerminal 要先在「工具 → AI 设置 → 外部接管」里打开开关。")
+    print("注意：NetOpsTerminal 要先在「工具 → AI 设置 → 外部接管」里打开开关。")
     return 0
 
 

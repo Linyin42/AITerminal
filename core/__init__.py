@@ -1,5 +1,5 @@
 """
-AITerminal 核心层
+NetOpsTerminal 核心层
 
 包含连接器、会话管理、终端模拟器和 AI 智能体。
 """

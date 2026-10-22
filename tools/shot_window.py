@@ -1,7 +1,7 @@
 """用 PrintWindow 抓指定标题窗口的画面并存 PNG（锁屏/后台也能抓）。
 
 用法:
-    python tools/shot_window.py --title AITerminal --save out.png
+    python tools/shot_window.py --title NetOpsTerminal --save out.png
 说明:
     显示器缩放 125% 时，GetWindowRect 给的是物理像素，PrintWindow 按客户区
     渲染 + 标题栏，输出尺寸 = 窗口物理尺寸。锁屏下不能用 CopyFromScreen（句柄无效）。
@@ -101,7 +101,7 @@ def capture(hwnd) -> Image.Image:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--title", default="AITerminal")
+    ap.add_argument("--title", default="NetOpsTerminal")
     ap.add_argument("--save", required=True)
     a = ap.parse_args()
     hits = find_window(a.title)

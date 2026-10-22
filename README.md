@@ -1,6 +1,6 @@
 <div align="center">
 
-# AITerminal · AI 智能终端
+# NetOps Terminal · 网络运维终端
 
 **把网络设备的命令行，变成能对话、能巡检、能留痕的运维工作台**
 
@@ -12,7 +12,7 @@ SSH / Telnet / 串口 Console / eNSP Pro 四种连法 · AI 辅助排障与命�
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey)
 ![license](https://img.shields.io/badge/license-MIT-green)
 
-<img src="docs/screenshots/01-main.png" alt="AITerminal 主界面" width="100%">
+<img src="docs/screenshots/01-main.png" alt="NetOps Terminal 主界面" width="100%">
 
 </div>
 
@@ -36,7 +36,7 @@ SSH / Telnet / 串口 Console / eNSP Pro 四种连法 · AI 辅助排障与命�
 
 ## 这是什么
 
-网络设备的日常运维，一半时间花在「敲命令 → 看输出 → 判断下一步」这个循环里。AITerminal 把这个循环做完整：
+网络设备的日常运维，一半时间花在「敲命令 → 看输出 → 判断下一步」这个循环里。NetOps Terminal 把这个循环做完整：
 
 - **一个终端连到底**：SSH、Telnet、串口 Console、华为 eNSP Pro 仿真设备，四种连法共用同一套终端体验，多标签并行；
 - **AI 看得见屏幕**：把设备输出喂给大模型（Claude / DeepSeek / 任意 OpenAI 兼容接口），让它解释报错、给出下一条命令，而且**命令要不要执行由你点确认**；
@@ -46,7 +46,7 @@ SSH / Telnet / 串口 Console / eNSP Pro 四种连法 · AI 辅助排障与命�
 
 ## 和普通终端有什么不同
 
-| | MobaXterm / SecureCRT / PuTTY | AITerminal |
+| | MobaXterm / SecureCRT / PuTTY | NetOps Terminal |
 | --- | --- | --- |
 | 连接方式 | SSH / Telnet / Serial | 同上 **+ eNSP Pro 仿真平台直连** |
 | 看懂输出 | 只显示 | AI 解释报错、判断下一步、给出命令 |
@@ -108,14 +108,14 @@ SSH / Telnet / 串口 Console / eNSP Pro 四种连法 · AI 辅助排障与命�
 
 ### 方式一：直接跑可执行文件（推荐给使用者）
 
-- **Windows**：下载 `AITerminal.exe` 双击运行，无需安装 Python
-- **Linux**：下载 `AITerminal`（单文件 ELF）+ `install.sh`，按 [README-Linux.md](README-Linux.md) 安装
+- **Windows**：下载 `NetOpsTerminal.exe` 双击运行，无需安装 Python
+- **Linux**：下载 `NetOps Terminal`（单文件 ELF）+ `install.sh`，按 [README-Linux.md](README-Linux.md) 安装
 
 ### 方式二：源码运行（推荐给开发者）
 
 ```bash
-git clone https://github.com/Linyin42/AITerminal.git
-cd AITerminal
+git clone https://github.com/Linyin42/netops-terminal.git
+cd netops-terminal
 
 python -m venv .venv
 # Windows: .venv\Scripts\activate
@@ -192,7 +192,7 @@ aiterminal/
 ├── tools/               # 验证脚本、模拟设备、探测与构建工具
 ├── build.spec           # Windows 打包配置（PyInstaller）
 ├── build-linux.sh       # Linux 打包脚本
-└── AITerminal-linux.spec# Linux 打包配置
+└── NetOpsTerminal-linux.spec# Linux 打包配置
 ```
 
 > 厂商知识库（`knowledge/`，体积较大）不随仓库发布，首次使用请在界面里导入资料或按 [docs/README.md](docs/README.md) 的方式本地构建。
@@ -210,10 +210,10 @@ python tests/test_command_safety.py # 只跑危险命令分级
 打包：
 
 ```bash
-# Windows → dist\AITerminal.exe
+# Windows → dist\NetOpsTerminal.exe
 build.bat
 
-# Linux → dist/AITerminal（需要 python3-dev / libgl1 / libxcb-* 等，脚本里已列）
+# Linux → dist/NetOpsTerminal（需要 python3-dev / libgl1 / libxcb-* 等，脚本里已列）
 bash build-linux.sh
 ```
 

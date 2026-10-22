@@ -1,5 +1,5 @@
 """
-AITerminal 冒烟测试 - 不依赖真实设备，验证核心逻辑与界面可正常构建
+NetOpsTerminal 冒烟测试 - 不依赖真实设备，验证核心逻辑与界面可正常构建
 
 运行:
     python tests/smoke_test.py
@@ -2552,7 +2552,7 @@ def test_manual():
         check("手册: 解析标签", parsed["tags"] == ["h3c", "端口镜像"], repr(parsed["tags"]))
         check("手册: 解析设备元信息", parsed["meta"].get("设备") == "核心交换机")
         check("手册: 解析正文", "mirroring-group" in parsed["body"])
-        check("手册: 正文不含署名行", "AITerminal 保存" not in parsed["body"])
+        check("手册: 正文不含署名行", "NetOps Terminal 保存" not in parsed["body"])
 
         notes = manual_mod.load_notes(kb)
         check("手册: 载入笔记数量", len(notes) == 3, str(len(notes)))
@@ -3071,7 +3071,7 @@ def test_main_window():
 def main():
     global _APP
     print("=" * 60)
-    print("AITerminal 冒烟测试")
+    print("NetOpsTerminal 冒烟测试")
     print("=" * 60)
     _APP = QApplication.instance() or QApplication([])
     test_terminal_buffer()

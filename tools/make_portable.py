@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""组装 AITerminal **便携交付包**（交付机不装 Python，拷到哪都能跑）。
+"""组装 NetOpsTerminal **便携交付包**（交付机不装 Python，拷到哪都能跑）。
 
-布局（都在 `<out>\\AITerminal\\` 下）：
-    AITerminal.exe      PyInstaller onefile（build.bat 的产物）
+布局（都在 `<out>\\NetOpsTerminal\\` 下）：
+    NetOpsTerminal.exe      PyInstaller onefile（build.bat 的产物）
     knowledge/          厂商文档语料：tech/ + chapters/ + commands.sqlite + index.json
     _vendor_cmd/        命令补全数据（h3c/huawei/ruijie）
     local_llm/          随包脚本 —— 打包态的 `--script` 运行器要按**真实文件路径**跑它们
@@ -60,7 +60,7 @@ setlocal
 set "AIT_LLM_HOME=%~dp0llm_data"
 set "AIT_KNOWLEDGE_DIR=%~dp0knowledge"
 set "AIT_VENDOR_CMD_DIR=%~dp0_vendor_cmd"
-start "" "%~dp0AITerminal.exe"
+start "" "%~dp0NetOpsTerminal.exe"
 endlocal
 """
 
@@ -86,10 +86,10 @@ def tree_size(path):
 def build_manifest(args):
     """返回 [(来源路径, 包内相对路径, 是否目录)]；来源不存在则抛 SystemExit。"""
     items = []
-    exe = os.path.join(P, "dist", "AITerminal.exe")
+    exe = os.path.join(P, "dist", "NetOpsTerminal.exe")
     if not os.path.exists(exe):
         raise SystemExit(f"!! 找不到 {exe}\\n   先构建：build.bat（或 python -m PyInstaller build.spec）")
-    items.append((exe, "AITerminal.exe", False))
+    items.append((exe, "NetOpsTerminal.exe", False))
 
     # knowledge（语料，默认仓库根/knowledge，可用 --knowledge 换语料根）+ _vendor_cmd（补全数据）
     # ⚠ 必须先校验存在性：knowledge 若不检查，`--go` 会先复制完 exe 才在 copytree 里抛原生
@@ -125,7 +125,7 @@ def build_manifest(args):
         # VC 运行库必须**和 llama-server.exe 放同一目录**（2026-10-17 在成品包上实测的因果链）：
         # 应用起本地模型时是让 llama-server 以 DETACHED_PROCESS 常驻，它会通过"父进程的
         # DLL 目录"从 onefile 的 `<TEMP>\_MEIxxxx` 解析 VCRUNTIME140*.dll ⇒ 它运行期间锁住
-        # 那个临时解包目录 ⇒ 引导器退出时清不掉、**残留一个 12MB 的 AITerminal.exe 常驻**
+        # 那个临时解包目录 ⇒ 引导器退出时清不掉、**残留一个 12MB 的 NetOpsTerminal.exe 常驻**
         # （实测该进程 _PYI_PARENT_PROCESS_LEVEL=0、卡在清理重试；删掉 _MEI 里这两个 dll 才解锁）。
         # 放到 bin/ 后"应用自身目录"优先于父进程注入的目录，子进程改从 bin/ 加载 ⇒ 引导器
         # 正常收尾（实测残留 = 0）。附带好处：交付机没装 VC++ 运行库也能起 llama-server。
@@ -171,7 +171,7 @@ def main():
     ap.add_argument("--zip", action="store_true", help="复制完再打 zip64（耗时、占额外空间）")
     args = ap.parse_args()
 
-    dest_root = os.path.join(args.out, "AITerminal")
+    dest_root = os.path.join(args.out, "NetOpsTerminal")
     items = build_manifest(args)
 
     print("=== 便携包清单 ===")
@@ -237,7 +237,7 @@ def main():
         "set \"AIT_KNOWLEDGE_DIR=%~dp0knowledge\"\n"
         "set \"AIT_VENDOR_CMD_DIR=%~dp0_vendor_cmd\"\n"
         "echo === 交付自检（明细同时写入 交付自检报告.txt）===\n"
-        "\"%~dp0AITerminal.exe\" --script \"%~dp0local_llm\\verify_delivery.py\""
+        "\"%~dp0NetOpsTerminal.exe\" --script \"%~dp0local_llm\\verify_delivery.py\""
         " --report \"%~dp0交付自检报告.txt\"\n"
         "echo.\n"
         "type \"%~dp0交付自检报告.txt\"\n"
@@ -247,7 +247,7 @@ def main():
         fh.write(check)
     with open(os.path.join(dest_root, "使用说明.txt"), "w", encoding="utf-8") as fh:
         fh.write(
-            "AITerminal 便携版\n"
+            "NetOps Terminal 便携版\n"
             "=================\n"
             "1) 双击「启动.bat」运行（它会指定数据根，别直接双击 exe —— 直接双击会去找 D:\\ait_llm）。\n"
             "2) 首次使用先跑「自检.bat」：核对 llama-server、模型字节、本机档位与向量库。\n"
@@ -270,7 +270,7 @@ def main():
             "           config:\n"
             "             serverName: aiterminal\n"
             "             transport: stdio\n"
-            "             command: '<本包目录>\\AITerminal.exe'\n"
+            "             command: '<本包目录>\\NetOpsTerminal.exe'\n"
             "             args: ['--script', 'data_tools\\mcp\\aiterminal_mcp.py']\n"
             "             cwd: '<本包目录>'\n"
             "             toolCallTimeoutMs: 120000\n"
@@ -290,7 +290,7 @@ def main():
     # 数据工具随包发布（2026-10-17）：用户要能把"原始资料 → 可入库资料"的**脚本连同说明**
     # 一起交给别的 AI。脚本每次出包都从仓库重拷 ⇒ 与仓库永远同步；说明与示例的母本在
     # 仓库 docs\数据工具\；《资料导入规范》也放一份进本目录，好整份交出（自包含）。
-    # 目录名**必须全 ASCII**：2026-10-17 实测 `AITerminal.exe --script "数据工具\切片与向量\x.py"`
+    # 目录名**必须全 ASCII**：2026-10-17 实测 `NetOpsTerminal.exe --script "数据工具\切片与向量\x.py"`
     # rc=1 零输出，同一个脚本换成 `local_llm\x.py` 就 rc=0 ⇒ exe 的 --script 通道不认非 ASCII 路径。
     _repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     tool_root = os.path.join(dest_root, "data_tools")
@@ -305,7 +305,7 @@ def main():
                                   "fetch_vendor_docs.py", "gen_tech_summary.py")),
         ("chunk_embed", "local_llm", ("build_index.py", "embed_chunks.py", "_embed_chain.py",
                                       "check_vectors.py", "paths.py", "retrieve.py")),
-        # 外部接管用的 MCP 桥（纯标准库）：交付机上用 AITerminal.exe --script 跑它，
+        # 外部接管用的 MCP 桥（纯标准库）：交付机上用 NetOpsTerminal.exe --script 跑它，
         # 于是**不需要**交付机装 Python。DSH 侧的接法见包内 使用说明.txt。
         ("mcp", os.path.join("data_tools", "mcp"), ("aiterminal_mcp.py",)),
     )
@@ -338,7 +338,7 @@ def main():
                      "if \"%V%\"==\"\" (echo 未给厂商名，退出 & pause & exit /b 2)\n"
                      "set \"AIT_LLM_HOME=%~dp0..\\llm_data\"\n"
                      f"echo === {script}  厂商=%V% ===\n"
-                     f"\"%~dp0..\\AITerminal.exe\" --script \"%~dp0{script}\" {extra_args}\n"
+                     f"\"%~dp0..\\NetOpsTerminal.exe\" --script \"%~dp0{script}\" {extra_args}\n"
                      "echo.\necho 退出码=%ERRORLEVEL%\npause\n")
     print(f"  ✓ data_tools\\（{n_tool} 个脚本 + 3 个 bat + 给AI的说明.md + sample + 资料导入规范.md）")
 
@@ -349,7 +349,7 @@ def main():
     print(f"  实测/预计 偏差 {abs(actual - total) / max(total, 1) * 100:.2f}%")
 
     if args.zip:
-        zip_path = os.path.join(args.out, "AITerminal-便携.zip")
+        zip_path = os.path.join(args.out, "NetOpsTerminal-便携.zip")
         tz = time.time()
         print(f"\n打包 zip64 → {zip_path}（{human(actual)}，会压很久）")
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED,

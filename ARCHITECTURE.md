@@ -1,4 +1,4 @@
-# AITerminal 架构地图（ARCHITECTURE.md）
+# NetOps Terminal 架构地图（ARCHITECTURE.md）
 
 > 生成方式：**全部为实读事实**（文件清单+行数、`#include` 统计、RPC 派发表、混层规则的 `文件:行`），非凭印象。
 > 目的：把"以后 UI 可以完全重写而不动核心"做成可执行的迁移路线。**本文件是第一步交付物，尚未动刀。**
@@ -143,7 +143,7 @@ ui --RPC--> EngineClient --stdio JSON-RPC--> engine/service.py --调用--> core/
 | **D3** | **知识库来源拼装 / 短讲解 / 示例覆盖文案** | `KnowledgeDialog.cpp:356,358,366`（`examplesCoverage`/`tech_note`/来源行） | "**该显示哪些字段、缺列怎么表述**"是产品口径，写在 UI 里 → 未来每个 UI 都要重写这套口径 | `core/vendor_knowledge.py` + 引擎：返回**面向展示的 DTO**（含"暂无"文案与来源去重结果） |
 | **D4** | **安全闸门分支**（只读判定→弹确认→拦截后的处理） | `MainWindow.cpp:750-786`（`safety.check` 分支 + `answer != Yes` 擦行） | 判定本身在 `core/safety.py` ✅，但**"拦截后要做什么"（退格擦行/计数/提示）散在 UI** | 引擎：`safety.gate` 返回**决策 DTO**（放行/需确认/拦截 + 拦截后的动作序列），UI 只执行动作 |
 | **D5** | **补全触发与策略** | 策略已在 `core/command_suggest.py` ✅（C++ 只送 prompt 原文）；UI 保留 150ms 去抖 + 浮层渲染：`TerminalView.cpp:837,888,889` | 基本正确，**仅剩"去抖/落地键"属交互**（保留在 UI 合理） | 维持现状；把"何时该弹/弹什么"继续锁在引擎（`commands.suggest`） |
-| **D6**（新发现） | **配置根与 usage-log 根不一致** | 配置/知识库根 `~\.aiterminal\`；usage-log 根 `%APPDATA%\AITerminal\usage-log\` | 属**产品决策**（数据落点），不是 UI 问题，但会影响"UI 重写后数据从哪读" | `config/settings.py` 统一根（建议 `~\.aiterminal\`）+ 一次性迁移 —— **待决策** |
+| **D6**（新发现） | **配置根与 usage-log 根不一致** | 配置/知识库根 `~\.aiterminal\`；usage-log 根 `%APPDATA%\NetOps Terminal\usage-log\` | 属**产品决策**（数据落点），不是 UI 问题，但会影响"UI 重写后数据从哪读" | `config/settings.py` 统一根（建议 `~\.aiterminal\`）+ 一次性迁移 —— **待决策** |
 | **D7**（新发现） | 串口设备字段冗余（`host:"COM5"` 与 `serial_port:"COM5"` 并存、且带 `port:22`） | `~\.aiterminal\settings.json` 实读 | 属**数据模型**问题，会让新 UI 猜字段 | `config/settings.py` 归一化（保留一个端口字段 + 迁移）—— **待确认** |
 
 ---

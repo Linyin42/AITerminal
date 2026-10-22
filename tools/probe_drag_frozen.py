@@ -1,7 +1,7 @@
 """冻结包内的拖拽/复制验证（不依赖 PyQt6.QtTest —— 它在 build.spec 里被排除）。
 
 跑法（GUI 包无控制台，所以结果落盘 + 退出码）:
-    AITerminal.exe --script C:\\aitprobe\\probe_drag_frozen.py
+    NetOpsTerminal.exe --script C:\\aitprobe\\probe_drag_frozen.py
 结果: C:\\aitprobe\\drag_frozen.txt
 
 检查项与 probe_drag_copy.py 一一对应，只是把 QTest.mousePress/mouseMove 换成直接构造 QMouseEvent：

@@ -920,7 +920,7 @@ class KnowledgeDialog(QDialog):
 
         fmt = 'html' if ('html' in (chosen_filter or '').lower()
                          or path.lower().endswith('.html')) else 'md'
-        subtitle = f"共 {len(selected)} 篇笔记　|　由 AITerminal 本地资料库导出"
+        subtitle = f"共 {len(selected)} 篇笔记　|　由 NetOpsTerminal 本地资料库导出"
         if export_manual(path, selected, title or "命令手册", subtitle, fmt):
             extra = ("HTML 版本可直接用浏览器打开并打印成 PDF。"
                      if fmt == 'html' else "Markdown 版本可直接编辑或再次导入资料库。")

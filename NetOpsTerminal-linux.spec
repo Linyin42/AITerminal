@@ -1,11 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
-# AITerminal 打包配置（PyInstaller · Linux）
-# 用法: pyinstaller AITerminal-linux.spec
-# 产物: dist/AITerminal（单文件 ELF，无控制台）
+# NetOpsTerminal 打包配置（PyInstaller · Linux）
+# 用法: pyinstaller NetOpsTerminal-linux.spec
+# 产物: dist/NetOpsTerminal（单文件 ELF，无控制台）
 #
 # 与 build.spec（Windows）的差异仅三处，其余保持逐行一致，避免两套配置漂移：
 #   1. icon=None        —— Linux 下 PyInstaller 不接受 .ico 做可执行文件图标，
-#                          图标由 packaging/aiterminal.desktop + app.png 提供；
+#                          图标由 packaging/netops-terminal.desktop + app.png 提供；
 #   2. upx=False        —— 大多数发行版没装 upx，开着只会刷告警；
 #   3. console/windowed —— Linux 没有独立控制台概念，保留 windowed=True 让
 #                          stdout 不抢终端（--script 模式靠退出码/落盘结果核对）。
@@ -102,7 +102,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name="AITerminal",
+    name="NetOpsTerminal",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

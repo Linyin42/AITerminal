@@ -56,7 +56,7 @@ def pump(app, seconds):
 
 def main():
     app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName("AITerminal")
+    app.setApplicationName("NetOpsTerminal")
 
     win = MainWindow()
     win.resize(1600, 900)

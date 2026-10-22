@@ -1,4 +1,4 @@
-# AITerminal UI <-> 引擎 契约（API-CONTRACT.md）
+# NetOps Terminal UI <-> 引擎 契约（API-CONTRACT.md）
 
 > **S1 交付物**：由 `engine/service.py` **逐 handler 实读生成**（脚本 `_automation/gen_api_contract.py`）。
 > 读不出来的字段写 `?` 并列入「未判定」，**不编造**。参数/返回的**类型**以代码实际用法为准（JSON 值均经 `json` 往返）。

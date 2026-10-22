@@ -79,7 +79,7 @@ class SessionLogger:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return (
             "=" * 68 + "\n"
-            f"AITerminal 会话日志\n"
+            f"NetOpsTerminal 会话日志\n"
             f"会话名称: {self.name}\n"
             f"目标设备: {self.host}\n"
             f"开始时间: {now}\n"

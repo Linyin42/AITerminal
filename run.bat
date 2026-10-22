@@ -22,6 +22,6 @@ if not exist ".venv\Scripts\python.exe" (
     )
 )
 
-echo 启动 AITerminal ...
+echo 启动 NetOpsTerminal ...
 ".venv\Scripts\python.exe" main.py
 if errorlevel 1 pause

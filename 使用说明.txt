@@ -2,7 +2,7 @@
    现行请见：README「维护入口」一节 · 项目现状与交接.md · FEATURE-TESTS.md
 
 ============================================================
-AITerminal —— AI 智能终端（网络设备运维助手）v0.7
+NetOps Terminal —— 网络运维终端（网络设备运维助手）v0.7
 ============================================================
 
 【这是什么】
@@ -12,7 +12,7 @@ AITerminal —— AI 智能终端（网络设备运维助手）v0.7
 串口连接，AI 可联网查命令、读本地资料库。
 
 【怎么用】
-1. 直接双击 AITerminal.exe 即可运行，无需安装任何东西。
+1. 直接双击 NetOpsTerminal.exe 即可运行，无需安装任何东西。
 2. 首次使用，在中间「AI 助手 → AI 高级」里填入你的 API Key
    （默认使用 DeepSeek，也可切到 Anthropic / OpenAI 兼容接口），
    保存后 AI 功能即生效。
@@ -63,13 +63,13 @@ AITerminal —— AI 智能终端（网络设备运维助手）v0.7
 【数据存放】
 所有配置、日志、资料库默认在用户目录：
    Windows: C:\Users\<你>\.aiterminal\
-重新分发时只发 AITerminal.exe 即可，每个使用者有各自独立的配置。
+重新分发时只发 NetOpsTerminal.exe 即可，每个使用者有各自独立的配置。
 exe 本身可以放在任何位置（包括只读目录如 Program Files），不会向
 自身目录写任何文件。
 
 【重新打包（开发者）】
    pip install pyinstaller pillow
-   build.bat    （生成 dist\AITerminal.exe）
+   build.bat    （生成 dist\NetOpsTerminal.exe）
 
 【快捷键 / 提示】
 · 终端区：Ctrl+C 中断，Ctrl+L 清屏，↑↓ 历史命令

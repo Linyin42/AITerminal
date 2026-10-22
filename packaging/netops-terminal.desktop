@@ -1,17 +1,17 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=AITerminal
-Name[zh_CN]=AITerminal 网络终端
+Name=NetOps Terminal
+Name[zh_CN]=NetOps Terminal 网络运维终端
 GenericName=Network Device Terminal
 GenericName[zh_CN]=网络设备终端
 Comment=SSH / Telnet / Serial terminal for multi-vendor switches and routers
 Comment[zh_CN]=多厂商交换机与路由器的 SSH / Telnet / 串口终端
-Exec=/opt/aiterminal/AITerminal
+Exec=/opt/aiterminal/NetOpsTerminal
 Icon=/opt/aiterminal/resources/icons/app.png
 Terminal=false
 Categories=Development;Network;Utility;Qt;
 Keywords=terminal;ssh;telnet;serial;console;network;switch;router;
 Keywords[zh_CN]=终端;串口;交换机;路由器;网络;
 StartupNotify=true
-StartupWMClass=AITerminal
+StartupWMClass=NetOpsTerminal

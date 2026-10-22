@@ -1638,4 +1638,103 @@ H3C 的通配标签是 `任意视图`、华为是 `所有视图`、**锐捷没�
 ⚠️ 用户现有 `settings.json` 里那条 19 位废密码（20:49 的残留）**未擅自改动**，要清就在界面上
 重输一次密码并保存。
 
+---
+
+## 17 改名：AITerminal → NetOps Terminal（网络运维终端）
+
+### 17.1 定了什么、为什么改
+
+产品名不再叫 `AITerminal`（"AI" 是个过时的前缀，跟"网络设备运维"这件事对不上）。2026-10-22 定：
+
+| 维度 | 值 |
+|---|---|
+| 英文名 | `NetOps Terminal`（界面/文档里带空格） |
+| 中文名 | `网络运维终端` |
+| ASCII 形态 | `NetOpsTerminal`（进 exe / 目录名 / AppUserModelID —— 路径里不能有空格） |
+| 仓库 | `github.com/Linyin42/netops-terminal` |
+| 版本 | 仍是 `v0.7`（没借改名跳版本；`cpp/CMakeLists.txt` 的 0.8.0 是 C++ 那套自己的号，本轮没动） |
+
+范围：**品牌层 + 仓库 + 产物名**。数据目录与外部契约不动 —— 理由见 17.3。
+
+### 17.2 分界线：大小写决定改不改
+
+`AITerminal`（驼峰）= 品牌，改；`aiterminal`（小写）= 路径/标识，一律保留。
+唯一例外是 4 个"小写但是名字"的地方：`setup.py` 的 `name="aiterminal"` → `netops-terminal`、
+入口点 `aiterminal=main:main` → `netopsterminal=main:main`、`packaging/aiterminal.desktop` →
+`netops-terminal.desktop`、图标 `aiterminal.png` → `netops-terminal.png`。
+
+主要映射：
+
+| 旧 | 新 | 出现处 |
+|---|---|---|
+| `AITerminal.exe` / `dist/AITerminal` | `NetOpsTerminal.exe` / `dist/NetOpsTerminal` | build.spec、build.bat、make_portable、README |
+| `AITerminal-linux.spec` | `NetOpsTerminal-linux.spec` | 文件名 + 各处引用 |
+| `AITerminal-便携.zip` | `NetOpsTerminal-便携.zip` | make_portable:352、verify_delivery_zip |
+| `AITerminal.Terminal.0.7` | `NetOpsTerminal.Terminal.0.7` | main.py:147（AppUserModelID，任务栏分组靠它） |
+| `AITerminal.Team` / `AITerminal Team` | `NetOps Terminal Team` | main.py:133、setup.py:80 |
+| `AI智能终端` / `AI 智能终端` | `网络运维终端` | 窗口标题、README、使用说明 |
+| `AITerminalControl/1.0` | `NetOpsTerminalControl/1.0` | control_api.py:507（HTTP `Server` 头，没有客户端比较） |
+| `APP_NAME = "AITerminal"` | `APP_NAME = "NetOps Terminal"` | control_api.py:35（`/status` 报给外部智能体的名字） |
+
+### 17.3 不动清单（改了会真的丢东西）
+
+| 保留项 | 原因 |
+|---|---|
+| `~/.aiterminal/`（settings、vault、`knowledge/` 676 MB、`control.json`、`control-audit.log`） | 用户已有配置/资料库/控制令牌，改名等于全部失联 |
+| `%APPDATA%\AITerminal\usage-log`（`core/usage_log.py:192`） | 用量日志数据目录，历史记录都在里面 |
+| `tests/snapshots/usage_dto_baseline.json` 里那条 `...\AITerminal\usage-log` | 快照存的是上面那个真实路径 |
+| `AIT_*` 环境变量、`AITERMINAL_MCP_DEBUG` | 外部脚本/本机资料库约定 |
+| `data_tools/mcp/aiterminal_mcp.py` 文件名、`SERVER_NAME="aiterminal"`、`mcp-aiterminal` 标记、`serverName: aiterminal` | DSH 里已注册的 `mcp__aiterminal__*` 10 个工具靠它，改名 = 外部 AI 客户端找不到桥 |
+| `aiterminal-script.log` / `aiterminal-slow.log` / `aiterminal-rag.log` / `%TEMP%\aiterminal-engine.log` | 交付机上的既有日志与排障手册引用 |
+| Linux 安装前缀 `~/.local/share/aiterminal`、`/opt/aiterminal` | 已装用户升级路径（desktop 的 Exec 靠 sed 换前缀） |
+| `cpp/**` + `tests/cpp_ui_regression.py`、`tests/check_terminal_colors_snapshot.py` | C++ 旧界面本轮不改：它的 exe 仍叫 `AITerminal.exe`，改字符串不重建就是未验证状态 |
+
+### 17.4 怎么落地的
+
+工具 `tools/rebrand_netopsterminal.py`：`--apply` 真改、`--check` 查残留，幂等（改过的规则自动
+跳过），按文件类型分两套规则（文档 → `NetOps Terminal` 带空格；代码 → `NetOpsTerminal` 无空格），
+保护名单写死在 `SKIP_FILES`/`SKIP_EXACT`/`SKIP_PREFIX_DIRS` 里。
+
+自动改名：**114 个文件 / 471 处**（第一轮 92/323 覆盖 .py/.md/.spec/.sh/.bat/.json/.desktop，
+第二轮补 .qss/.ps1/.html/.svg/.gitignore 22/148）。
+
+两个踩过的坑（都已修）：
+1. `.gitignore` 里 `!AITerminal-linux.spec` 是**白名单**（`*.spec` 全忽略，只放行两份）——spec
+   文件改名后这条就不再匹配，新 spec 会变成"未跟踪"。
+2. `DISPLAY_FIXES` 的键写成正斜杠 `"ui/main_window.py"`，而 `walk()` 给的是 `os.sep` 拼接的
+   相对路径 ⇒ 整组"给人看的带空格文案"静默不生效（界面标题还是 `NetOpsTerminal - …`）。现在
+   键统一用 `os.path.join`，并加了"键在仓库里找不到对应文件"的告警。
+
+手工收尾 6 处（脚本不该碰、也不该猜的）：
+- README 标题与仓库链接（自动替换会把 URL 变成带空格的 `NetOps Terminal.git`，Git 用不了）；
+- `packaging/netops-terminal.desktop` 的 `Name`/`Name[zh_CN]`（`StartupWMClass` 保持 ASCII）；
+- `core/manual.py:53,374` 手册署名带空格；
+- `tests/smoke_test.py:2555` 署名断言跟着改；
+- 使用说明.txt 副标题；
+- `tests/cpp_dialog_color_probe.py` 的 exe 名**回退**成 `AITerminal.exe`（它跑的是 C++ 那套）。
+
+### 17.5 验证数字
+
+| 项 | 结果 |
+|---|---|
+| `python -m py_compile` × 50 个改动过的 .py | 0 语法错 |
+| `tests/test_connect_dialog_keys.py` | **10 / 10** |
+| `tests/test_ai_panel_toggle.py` | **8 / 8** |
+| `tests/test_mcp_bridge.py` | **54 通过 / 0 失败**（桥的 `serverInfo.name` 仍是 `aiterminal`） |
+| `tests/test_control_api.py` | **33 / 33** |
+| `tests/test_app_paths.py` | **18 / 18** |
+| 窗口标题探针（offscreen 起 MainWindow 读 `windowTitle()`） | **7 / 7**，标题 `NetOps Terminal · 网络运维终端 v0.7` |
+| `python -m PyInstaller build.spec --clean` | **76 s 成功**，产物 `dist/NetOpsTerminal.exe` 69.2 MB |
+| GitHub | `Linyin42/AITerminal` → `Linyin42/netops-terminal`（旧地址自动重定向），本地 `origin` 已切 |
+
+### 17.6 现在还叫 AITerminal 的地方（都是故意的）
+
+`PROJECT-DIGEST.md`（本文，历史记录）、`core/usage_log.py`（数据目录）、
+`tests/snapshots/usage_dto_baseline.json`（同上）、`cpp/**` 6 个文件、
+`tests/cpp_ui_regression.py`、`tests/check_terminal_colors_snapshot.py`、
+`design/**`（设计历史稿，未入 git）、`tools/rebrand_netopsterminal.py`（规则表本身）。
+
+C++ 那套要改的话是另一轮：`cpp/CMakeLists.txt` 的 target、`cpp/src/main.cpp` 的
+`setApplicationName`（它还决定 `%APPDATA%\AITerminal` 数据目录，得配迁移），并重建验证。
+
 

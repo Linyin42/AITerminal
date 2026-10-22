@@ -16,7 +16,7 @@ old_builds/
 # PyInstaller：默认忽略全部 .spec，只放行项目自己的两份
 *.spec
 !build.spec
-!AITerminal-linux.spec
+!NetOpsTerminal-linux.spec
 
 # 环境与密钥
 .env

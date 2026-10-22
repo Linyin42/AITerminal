@@ -50,7 +50,7 @@ def parse_note(text: str) -> dict:
 
     body = '\n'.join(body_lines).strip()
     # 去掉结尾的署名行
-    body = re.sub(r'\n-{3,}\s*\n\*由 AITerminal 保存.*$', '', body).strip()
+    body = re.sub(r'\n-{3,}\s*\n\*由 NetOps Terminal 保存.*$', '', body).strip()
 
     tags = []
     if meta.get('标签'):
@@ -371,7 +371,7 @@ def build_manual_html(notes: Sequence[dict], title: str = "命令手册",
 {toc_html}
 {body}
 <hr/>
-<p class="meta">由 AITerminal 生成于 {time.strftime('%Y-%m-%d %H:%M:%S')}</p>
+<p class="meta">由 NetOps Terminal 生成于 {time.strftime('%Y-%m-%d %H:%M:%S')}</p>
 </body>
 </html>
 """

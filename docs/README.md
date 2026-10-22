@@ -1,7 +1,7 @@
 ⚠ 本文档对应【旧版 PyQt6 界面 v0.7】，与现行 C++ 界面在术语、菜单与入口上均不一致，仅供历史参考。
    现行请见：README「维护入口」一节 · 项目现状与交接.md · FEATURE-TESTS.md
 
-# AITerminal 开发文档
+# NetOps Terminal 开发文档
 
 > 集成 AI 辅助功能的网络设备终端工具
 > 版本: 0.7.0 | 更新: 2026-09
@@ -10,7 +10,7 @@
 
 ## 1. 项目概述
 
-AITerminal 是一款面向网络运维人员的桌面终端工具，支持 SSH / Telnet / Serial(Console) 三种连接方式，
+NetOps Terminal 是一款面向网络运维人员的桌面终端工具，支持 SSH / Telnet / Serial(Console) 三种连接方式，
 在传统终端之上叠加了一个 AI 智能体层：它可以读取设备输出、判断设备厂商、生成下一步排查或配置命令，
 并在"自动模式"下按轮次自动下发命令，直到任务完成。
 
@@ -1089,7 +1089,7 @@ python tools/verify_device.py --protocol serial --serial-port COM3 --baudrate 96
 
 ---
 
-**作者**: AITerminal Team
+**作者**: NetOps Terminal Team
 **版本**: 0.7.0
 **更新日期**: 2026-09
 **许可证**: MIT

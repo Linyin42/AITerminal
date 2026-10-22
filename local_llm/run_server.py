@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""启动/停止本地 llama-server（AITerminal 的"本地大模型"后端）。
+"""启动/停止本地 llama-server（NetOpsTerminal 的"本地大模型"后端）。
 
 为什么要单独一个启动器而不是裸敲命令：
   · 档位要按机器自适应（交付机显存 2-6GB 不等）——复用 probe_tier.py 的判定
-  · AITerminal 侧只需要一个 **OpenAI 兼容 base_url**，这里负责把它起好、等健康检查通过、
+  · NetOpsTerminal 侧只需要一个 **OpenAI 兼容 base_url**，这里负责把它起好、等健康检查通过、
     并把可直接填进设置界面的参数打印出来（provider=openai_compat）
   · 交付机上必须能"起了就忘"（detached）+ 能干净停掉（pid 文件）
 
-与 AITerminal 的对接点（实码）：
+与 NetOpsTerminal 的对接点（实码）：
   core/llm.py:49-55   provider "openai_compat" 就是"自建/中转/本地"
   core/llm.py:75-89   chat_url() 会在 base_url 后面补 /v1/chat/completions
   core/llm.py:126-131 configured 要求 api_key 非空 ⇒ 这里用占位 key 并显式 --api-key
@@ -50,7 +50,7 @@ LOG = os.path.join(HERE, "_llama_server.log")
 API_KEY = "local-llm"
 #: 模型别名。不带 --alias 时 /v1/models 会把**模型文件全路径**当 id 返回，
 #: 填进设置界面又长又随档位变（mid 和 low 是两个不同的路径）。
-#: 固定别名后，AITerminal 里不管是 4B 还是 1.7B，模型名永远是 local-llm。
+#: 固定别名后，NetOpsTerminal 里不管是 4B 还是 1.7B，模型名永远是 local-llm。
 MODEL_ALIAS = "local-llm"
 
 sys.path.insert(0, HERE)
@@ -361,7 +361,7 @@ def main():
     except Exception as e:  # noqa: BLE001
         print(f"/v1/models 查询失败: {type(e).__name__}", flush=True)
 
-    print("\n--- 填进 AITerminal（设置→AI）---")
+    print("\n--- 填进 NetOpsTerminal（设置→AI）---")
     print(f"  提供方(provider) : local   ← 已内置预设，base_url/模型/占位密钥都已填好，"
           f"直接选它再点[测试]即可")
     print(f"  接口地址(base_url): http://127.0.0.1:{args.port}/v1")

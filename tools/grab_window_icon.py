@@ -6,7 +6,7 @@
 
 用法：
   python tools\\grab_window_icon.py --pid 23948
-  python tools\\grab_window_icon.py --title AITerminal --save out.png
+  python tools\\grab_window_icon.py --title NetOpsTerminal --save out.png
 输出：宽×高、RGBA 指纹（SHA256 前 16 位）；给了 --save 就存 PNG。
 
 ⚠ 坑：HICON/HBITMAP 在 64 位上是指针。不给 ctypes 设 argtypes/restype 的话，

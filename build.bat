@@ -1,10 +1,10 @@
 @echo off
 chcp 65001 >nul
 REM ============================================================
-REM AITerminal 打包脚本（基于 build.spec）
+REM NetOpsTerminal 打包脚本（基于 build.spec）
 REM 前提：当前 Python 环境已安装 pyinstaller 与 pillow
 REM       pip install pyinstaller pillow
-REM 产物：dist\AITerminal.exe（单文件，双击即用）
+REM 产物：dist\NetOpsTerminal.exe（单文件，双击即用）
 REM ============================================================
 setlocal
 
@@ -26,8 +26,8 @@ if errorlevel 1 goto :fail
 
 echo.
 echo ============================================================
-echo 打包完成: dist\AITerminal.exe
-echo 把 AITerminal.exe 单独发给别人即可双击运行（无需安装）。
+echo 打包完成: dist\NetOpsTerminal.exe
+echo 把 NetOpsTerminal.exe 单独发给别人即可双击运行（无需安装）。
 echo ============================================================
 pause
 exit /b 0

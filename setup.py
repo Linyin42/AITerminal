@@ -1,5 +1,5 @@
 """
-AITerminal 打包配置
+NetOpsTerminal 打包配置
 
 开发安装:
     pip install -e .
@@ -34,7 +34,7 @@ DATA_FILES = [
 class BuildExeCommand(Command):
     """使用 PyInstaller 打包为单文件可执行程序"""
 
-    description = "使用 PyInstaller 打包 AITerminal"
+    description = "使用 PyInstaller 打包 NetOps Terminal"
     user_options = [
         ('onefile', None, '打包为单文件'),
         ('console', None, '保留控制台窗口'),
@@ -57,7 +57,7 @@ class BuildExeCommand(Command):
         sep = ';' if sys.platform.startswith('win') else ':'
         args = [
             'main.py',
-            '--name=AITerminal',
+            '--name=NetOpsTerminal',
             '--noconfirm',
             '--clean',
             f'--add-data=resources/styles/dark.qss{sep}resources/styles',
@@ -74,10 +74,10 @@ class BuildExeCommand(Command):
 
 
 setup(
-    name="aiterminal",
+    name="netops-terminal",
     version="0.7.0",
-    description="AITerminal - 集成 AI 辅助功能的网络设备终端工具",
-    author="AITerminal Team",
+    description="NetOps Terminal - 集成 AI 辅助功能的网络设备运维终端工具",
+    author="NetOps Terminal Team",
     license="MIT",
     packages=find_packages(exclude=("tests", "docs")),
     py_modules=["main"],
@@ -85,7 +85,7 @@ setup(
     python_requires=">=3.9",
     entry_points={
         "console_scripts": [
-            "aiterminal=main:main",
+            "netopsterminal=main:main",
         ],
     },
     cmdclass={"build_exe": BuildExeCommand},

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AITerminal MCP 桥的端到端自测（脚本式用例，不用 pytest）。
+"""NetOpsTerminal MCP 桥的端到端自测（脚本式用例，不用 pytest）。
 
 守四件事 —— 每一条都"真起进程、真过 HTTP"，不 mock 掉要验证的东西：
   ① 真起进程：把 `data_tools/mcp/aiterminal_mcp.py` 当子进程，JSON-RPC 逐行走 stdin/stdout；
@@ -89,9 +89,9 @@ def start_fake_backend():
                     "raw_body": raw.decode("utf-8", "replace")})
             m, p = self.command, u.path
             if m == "GET" and p == "/ping":
-                return self._send({"ok": True, "app": "AITerminal", "version": "0.7.0"})
+                return self._send({"ok": True, "app": "NetOps Terminal", "version": "0.7.0"})
             if m == "GET" and p == "/status":
-                return self._send({"app": "AITerminal", "version": "0.7.0", "pid": 1234,
+                return self._send({"app": "NetOps Terminal", "version": "0.7.0", "pid": 1234,
                                    "sessions": list(state["sessions"])})
             if m == "GET" and p == "/session/list":
                 return self._send({"sessions": list(state["sessions"])})
@@ -315,7 +315,7 @@ def main():
     print("=== ③ 逐个工具真调一次 ===")
     t, e, _ = call_tool(bridge, "ait_status", {})
     check("ait_status 是中文摘要：app/版本/pid/会话数 + 每个会话一行",
-          (not e) and all(k in t for k in ("AITerminal", "0.7.0", "1234", "h3c-1",
+          (not e) and all(k in t for k in ("NetOps Terminal", "0.7.0", "1234", "h3c-1",
                                            "核心交换机", "ssh", "10.0.0.1:22")),
           t.replace("\n", " | ")[:140])
 

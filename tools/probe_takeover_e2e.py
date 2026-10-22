@@ -143,7 +143,7 @@ def main():
 
         # 工具返回的是给人看的文本（不是 JSON），所以按关键字断言
         st = text_of(bridge.call("tools/call", {"name": "ait_status", "arguments": {}}))
-        assert "AITerminal" in st and str(os.getpid()) in st, st[:200]
+        assert "NetOpsTerminal" in st and str(os.getpid()) in st, st[:200]
         step(7, "经 MCP 读到**这个界面**的状态", st.replace("\n", " / ")[:80])
 
         ss = text_of(bridge.call("tools/call", {"name": "ait_sessions", "arguments": {}}))

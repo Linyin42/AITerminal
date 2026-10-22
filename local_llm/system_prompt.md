@@ -1,6 +1,6 @@
-# AITerminal 本地大模型 · 完整系统提示词（2026-10-16）
+# NetOps Terminal 本地大模型 · 完整系统提示词（2026-10-16）
 
-> 用途：本地 4B 模型（Qwen3-4B）作为"AITerminal 内的网络运维助手"的**正式系统提示词**，
+> 用途：本地 4B 模型（Qwen3-4B）作为"NetOps Terminal 内的网络运维助手"的**正式系统提示词**，
 > 含检索上下文注入模板、few-shot 示例、与现有 5 个内置提示词的对应关系、参数与验收要点。
 > 与实码对齐：`core/ai_agent.py`（BUILTIN / CONVERSATION / SEARCH_INSTRUCTION / EXPERIENCE / DOCUMENT_DIGEST）、
 > `core/llm.py:49-55`（openai_compat）、`core/tech_knowledge.py`（检索层）、`core/vendor_knowledge.py`（命令层）。

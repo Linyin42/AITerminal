@@ -295,7 +295,7 @@ class EngineService:
         import sys
 
         info = {
-            "name": "AITerminal Engine",
+            "name": "NetOpsTerminal Engine",
             "version": "0.8.0",
             "python": sys.version.split()[0],
             "platform": platform.platform(),

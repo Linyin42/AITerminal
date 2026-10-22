@@ -2,7 +2,7 @@
 # 验证"缺 CJK 字体导致方块字"：从 Windows 借字体装到用户目录（测试用，不随包分发）
 set -uo pipefail
 D="$HOME/ait-build/src"
-OUT="/mnt/d/ait_delivery/AITerminal/复验-2026-10-20"
+OUT="/mnt/d/ait_delivery/NetOpsTerminal/复验-2026-10-20"
 FONT_DIR="$HOME/.local/share/fonts"
 
 echo "=== 0) 现在有多少中文字体 ==="
@@ -22,7 +22,7 @@ fc-list :lang=zh family 2>/dev/null | sort -u | head -5
 
 echo "=== 2) 重新渲染（wayland）==="
 cd "$D"
-QT_QPA_PLATFORM=wayland timeout 60 ./dist/AITerminal --script tools/linux_ui_shot.py /tmp/ait-wayland-cjk.png 2>&1 | tail -16
+QT_QPA_PLATFORM=wayland timeout 60 ./dist/NetOpsTerminal --script tools/linux_ui_shot.py /tmp/ait-wayland-cjk.png 2>&1 | tail -16
 if [ -f /tmp/ait-wayland-cjk.png ]; then
   cp /tmp/ait-wayland-cjk.png "$OUT/Linux-主窗口-wayland-中文字体.png"
   ls -l /tmp/ait-wayland-cjk.png | awk '{print "  截图字节:", $5}'

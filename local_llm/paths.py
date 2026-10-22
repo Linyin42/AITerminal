@@ -99,7 +99,7 @@ def script_cmd(py_file, *args):
     """跑本子系统某个脚本的命令行 —— **唯一实现**在 `core/app_paths.script_cmd()`。
 
     为什么这里要转一层、而不是各脚本自己拼 `[sys.executable, 脚本]`：
-      打包（PyInstaller onefile）后 `sys.executable` 是 **AITerminal.exe 本身**，
+      打包（PyInstaller onefile）后 `sys.executable` 是 **NetOpsTerminal.exe 本身**，
       `[exe, "run_server.py"]` 会被当成"再开一个应用"，而永远不会跑那个脚本。
       这个坑只在一处修（`core/app_paths.py` 有完整说明与测试），别在每个脚本里各写一遍。
 

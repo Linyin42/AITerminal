@@ -8,7 +8,7 @@
   UnicodeEncodeError 把脚本打断）。所以**明细一律用 --report 落盘**，stdout 只是顺带。
 
 跑法（在交付包目录下）：
-  AITerminal.exe --script <repo>\tools\probe_frozen_fixes.py --report %TEMP%\probe.txt
+  NetOpsTerminal.exe --script <repo>\\tools\\probe_frozen_fixes.py --report %TEMP%\\probe.txt
 """
 import sys
 

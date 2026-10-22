@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# AITerminal Linux 打包脚本
+# NetOpsTerminal Linux 打包脚本
 #
 # 用法:
-#   bash build-linux.sh              # 在源码根目录构建 → dist/AITerminal
+#   bash build-linux.sh              # 在源码根目录构建 → dist/NetOpsTerminal
 #   bash build-linux.sh --clean      # 先删 build/ dist/ 再构建
 #
 # 前置（一次性）:
@@ -32,10 +32,10 @@ echo "== Python: $("$PY" -V) =="
 echo "== PyInstaller: $("$PY" -m PyInstaller --version) =="
 
 START=$(date +%s)
-"$PY" -m PyInstaller --noconfirm --clean AITerminal-linux.spec
+"$PY" -m PyInstaller --noconfirm --clean NetOpsTerminal-linux.spec
 END=$(date +%s)
 
-BIN="dist/AITerminal"
+BIN="dist/NetOpsTerminal"
 if [ ! -f "$BIN" ]; then
     echo "构建失败：$BIN 不存在" >&2
     exit 1

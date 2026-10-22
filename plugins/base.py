@@ -1,5 +1,5 @@
 """
-插件基类 - 定义 AITerminal 插件的标准接口
+插件基类 - 定义 NetOpsTerminal 插件的标准接口
 
 插件放置目录: <项目根>/plugins/
 插件文件命名: plugin_xxx.py，其中需包含一个 Plugin 类（继承 PluginBase）

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-AITerminal - AI智能终端
+NetOpsTerminal - 网络运维终端
 主程序入口
 
 两种跑法（同一份产物，别拆成两个 exe）：
@@ -128,9 +128,9 @@ def main():
     )
 
     app = QApplication(sys.argv)
-    app.setApplicationName("AITerminal")
+    app.setApplicationName("NetOpsTerminal")
     app.setApplicationVersion("0.7.0")
-    app.setOrganizationName("AITerminal Team")
+    app.setOrganizationName("NetOps Terminal Team")
 
     # 进程级图标：窗口、各对话框、任务栏都继承它。
     # 换图标就替换 resources\icons\app.ico（多尺寸 16/32/48/64/128/256，exe 图标同源）。
@@ -144,7 +144,7 @@ def main():
         try:
             import ctypes
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                "AITerminal.Terminal.0.7"
+                "NetOpsTerminal.Terminal.0.7"
             )
         except Exception:
             pass

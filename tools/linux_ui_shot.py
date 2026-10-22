@@ -1,7 +1,7 @@
 """离屏渲染主窗口并截图：验证 Linux 上真实 UI（不是空壳 QWidget）。
 
 用法（冻结包内）:
-    QT_QPA_PLATFORM=offscreen ./dist/AITerminal --script tools/linux_ui_shot.py /tmp/ait-linux-ui.png
+    QT_QPA_PLATFORM=offscreen ./dist/NetOpsTerminal --script tools/linux_ui_shot.py /tmp/ait-linux-ui.png
 
 返回码: 0=截到有效画面  5=渲染失败
 """

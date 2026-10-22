@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
-# AITerminal 打包配置（PyInstaller）
+# NetOpsTerminal 打包配置（PyInstaller）
 # 用法: pyinstaller build.spec
-# 产物: dist/AITerminal.exe（单文件，双击即用）
+# 产物: dist/NetOpsTerminal.exe（单文件，双击即用）
 import os
 
 PROJECT = os.path.dirname(os.path.abspath(SPEC))  # 项目根目录
@@ -106,7 +106,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name="AITerminal",
+    name="NetOpsTerminal",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

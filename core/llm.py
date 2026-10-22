@@ -223,7 +223,7 @@ class LLMClient:
                 "Content-Type": "application/json; charset=utf-8",
                 "Authorization": f"Bearer {self.api_key}",
                 "Accept": "application/json",
-                "User-Agent": "AITerminal/0.7",
+                "User-Agent": "NetOpsTerminal/0.7",
             },
         )
         context = ssl.create_default_context()
