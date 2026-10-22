@@ -515,9 +515,12 @@ class MainWindow(QMainWindow):
             lambda: self.set_vault_visible(not self.vault_panel.isVisible()))
         view_menu.addAction(act_toggle_vault)
         act_toggle_ai = QAction("显示/隐藏 AI 面板", self)
-        # 与图标条走同一个入口，勾选态不会和面板可见性脱节
+        # 与图标条走同一个入口，勾选态不会和面板可见性脱节。
+        # 判据必须是 self._ai_open：AI 面板收起是"宽度归零"，right_tabs.isVisible()
+        # 恒为 True —— 用它判断会让这一项**永远只会收起、再也打不开**
+        # （2026-10-21 gui_drive_test 的 G11 就是这么挂的：既没切换也没提示）。
         act_toggle_ai.triggered.connect(
-            lambda: self.set_ai_panel_visible(not self.right_tabs.isVisible()))
+            lambda: self.set_ai_panel_visible(not self._ai_open))
         view_menu.addAction(act_toggle_ai)
 
         # ---------------------------------------------------------- 工具

@@ -21,6 +21,34 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, BASE)
 
+# ---------------------------------------------------------------- 配置隔离
+# 以前这套键鼠测试直接用用户真实的 ~/.aiterminal/settings.json，而「记住该连接」
+# 会在 accept 时把密码写回去 —— 2026-10-21 20:49 那次就把
+# 「9 位旧密码 + 10 位新密码」的拼接串写进了 last_connection.password
+# （正是 G3「密码按键盘输入进去了 19 位」那条 FAIL 的残留）。测试数据不该进用户配置。
+# 这里换成临时配置，并**种一个确定的现场**：上次连接 = eNSP Pro + 9 位旧密码、
+# 没有沙箱/设备号 —— 这样"预填密码后输入应整段替换""拉取失败走回填兜底"两条
+# 每轮都会被真正走到，而不是靠碰运气。
+import base64                                                    # noqa: E402
+import json                                                      # noqa: E402
+import tempfile                                                  # noqa: E402
+
+import config.settings as _cfg_mod                               # noqa: E402
+
+CFG_PATH = os.path.join(tempfile.mkdtemp(prefix="ait-gui-drive-"), "settings.json")
+_cfg_mod.CONFIG_FILE = CFG_PATH          # 必须在任何 Settings() 之前改动
+OLD_PWD = "admin@123"                    # 上次连接的旧密码（9 位，故意比 DEV_PWD 短）
+with open(CFG_PATH, "w", encoding="utf-8") as _fh:
+    json.dump({"last_connection": {
+        "name": "eNSP",
+        "protocol": "eNSP",
+        "host": "192.168.31.11",
+        "port": 8443,
+        "username": "",
+        "remember": True,
+        "password": "b64:" + base64.b64encode(OLD_PWD.encode()).decode("ascii"),
+    }}, _fh, ensure_ascii=False)
+
 from PyQt6.QtCore import Qt, QTimer                              # noqa: E402
 from PyQt6.QtTest import QTest                                   # noqa: E402
 from PyQt6.QtWidgets import (QApplication, QComboBox, QDialog,   # noqa: E402

@@ -12,6 +12,7 @@
 import threading
 
 from PyQt6.QtCore import Qt, QObject, pyqtSignal
+from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLineEdit, QComboBox, QPushButton, QSpinBox, QDoubleSpinBox,
@@ -31,6 +32,71 @@ PROTOCOL_INTERNAL = {"SSH": "SSH", "Telnet": "Telnet", "Console": "Serial",
                      "eNSP Pro": "eNSP"}
 PROTOCOL_DISPLAY = {"SSH": "SSH", "Telnet": "Telnet", "Serial": "Console",
                     "eNSP": "eNSP Pro"}
+
+
+class _QuietCombo(QComboBox):
+    """下拉框：回车只当"选定"，**不要**冒泡到对话框的默认按钮。
+
+    现场（2026-10-21 `%TEMP%\\gui_drive_1.log`）：鼠标点协议下拉 + 键盘选到
+    eNSP Pro + 按回车 ⇒ QDialog 把这次回车当成"确定" ⇒ 弹「参数不完整」；
+    设备下拉框上按回车又弹一次；参数齐全时则直接开始连接。
+    用户的本意只是"把下拉项定下来"，不该触发提交。
+
+    可编辑的下拉框（串口号/波特率）放行：那里回车是"确认手输的值"。
+
+    实测（Qt6）：下拉框自己不认回车 —— 未处理的键走 `showPopup(); return;`，
+    事件既不 accept 也不 stop，于是继续冒泡到 `QDialog::keyPressEvent`，
+    被当成默认按钮的点击。所以这里必须**一律吞掉**。
+    弹出列表打开时，按键落在弹出列表自己的焦点窗口上，到不了这里。
+    """
+
+    def keyPressEvent(self, event):                       # noqa: N802 —— Qt 的命名
+        if (not self.isEditable()
+                and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)):
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
+class _PrefillPasswordEdit(QLineEdit):
+    """密码框：预填了上次的密码时，**第一次敲键就整段替换**，而不是接在后面。
+
+    现场（2026-10-21 `%TEMP%\\gui_drive_1.log`）：上次"记住该连接"存了 9 位密码，
+    新密码 10 位敲进去 ⇒ 框里变成 19 位（两段拼接）。密码显示成圆点，用户根本
+    看不出，连上去只会回 `Error: The password is invalid.`
+    —— 同类问题 2026-10-19 已经害过用户一次（见 `set_config` 里那段注释）。
+
+    规则：
+      · `setText()` 预填 ⇒ 进入"待替换"态（`clear()` 走 setText('')，自动退出）
+      · 待替换态下第一次按可打印字符（或粘贴）⇒ 先全选再由父类插入 ⇒ 整段换掉
+      · 先按方向键 / Home / End / 退格 ⇒ 取消待替换（用户是在改，不是重填）
+    """
+
+    _CANCEL_KEYS = frozenset({
+        Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Home, Qt.Key.Key_End,
+        Qt.Key.Key_Backspace, Qt.Key.Key_Delete, Qt.Key.Key_Up, Qt.Key.Key_Down,
+    })
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._replace_on_type = False
+
+    def setText(self, text):                              # noqa: N802 —— Qt 的命名
+        super().setText(text)
+        self._replace_on_type = bool(text)
+
+    def keyPressEvent(self, event):                       # noqa: N802
+        if self._replace_on_type:
+            if event.key() in self._CANCEL_KEYS:
+                self._replace_on_type = False
+            elif event.text() and event.text().isprintable():
+                self._replace_on_type = False
+                self.selectAll()
+            elif event.matches(QKeySequence.StandardKey.Paste):
+                # 从密码管理器/笔记里粘贴新密码：同样整段替换，别接在旧值后面
+                self._replace_on_type = False
+                self.selectAll()
+        super().keyPressEvent(event)
 
 
 def _set_combo_by_data(combo: QComboBox, value):
@@ -136,7 +202,7 @@ class SerialAdvancedDialog(QDialog):
         # Console 预设
         preset_group = QGroupBox("常用预设")
         preset_layout = QVBoxLayout()
-        self.console_preset = QComboBox()
+        self.console_preset = _QuietCombo()
         self.console_preset.addItem("— 选择 Console 预设 —")
         self.console_preset.addItems(list(CONSOLE_PRESETS.keys()))
         self.console_preset.currentTextChanged.connect(self.on_preset_selected)
@@ -150,9 +216,9 @@ class SerialAdvancedDialog(QDialog):
         # 帧格式
         frame_group = QGroupBox("帧格式")
         frame_layout = QHBoxLayout()
-        self.databits_combo = QComboBox()
+        self.databits_combo = _QuietCombo()
         self.databits_combo.addItems([str(b) for b in DATABITS_OPTIONS])
-        self.parity_combo = QComboBox()
+        self.parity_combo = _QuietCombo()
         for label, value in PARITY_OPTIONS:
             self.parity_combo.addItem(label, value)
         frame_layout.addWidget(QLabel("数据位"))
@@ -167,17 +233,17 @@ class SerialAdvancedDialog(QDialog):
         io_group = QGroupBox("流控与控制线")
         io_layout = QFormLayout()
 
-        self.flow_combo = QComboBox()
+        self.flow_combo = _QuietCombo()
         for label, value in FLOW_OPTIONS:
             self.flow_combo.addItem(label, value)
         io_layout.addRow("流控:", self.flow_combo)
 
         signal_row = QHBoxLayout()
-        self.dtr_combo = QComboBox()
+        self.dtr_combo = _QuietCombo()
         self.dtr_combo.addItem("不干预", None)
         self.dtr_combo.addItem("拉高 (High)", True)
         self.dtr_combo.addItem("拉低 (Low)", False)
-        self.rts_combo = QComboBox()
+        self.rts_combo = _QuietCombo()
         self.rts_combo.addItem("不干预", None)
         self.rts_combo.addItem("拉高 (High)", True)
         self.rts_combo.addItem("拉低 (Low)", False)
@@ -188,7 +254,7 @@ class SerialAdvancedDialog(QDialog):
         signal_row.addStretch()
         io_layout.addRow("控制线:", signal_row)
 
-        self.line_ending_combo = QComboBox()
+        self.line_ending_combo = _QuietCombo()
         for label, value in LINE_ENDING_OPTIONS:
             self.line_ending_combo.addItem(label, value)
         io_layout.addRow("行结束符:", self.line_ending_combo)
@@ -349,7 +415,7 @@ class ConnectDialog(QDialog):
         self.name_input.setPlaceholderText("选填，留空时自动按主机命名")
         basic_layout.addRow("名称(选填):", self.name_input)
 
-        self.protocol_combo = QComboBox()
+        self.protocol_combo = _QuietCombo()
         # SSH / Telnet / Console，以及华为 eNSP Pro 仿真平台
         self.protocol_combo.addItems(["SSH", "Telnet", "Console", "eNSP Pro"])
         self.protocol_combo.currentTextChanged.connect(self.on_protocol_changed)
@@ -375,7 +441,7 @@ class ConnectDialog(QDialog):
         self.username_input.setPlaceholderText("admin")
         self.conn_layout.addRow("用户名:", self.username_input)
 
-        self.password_input = QLineEdit()
+        self.password_input = _PrefillPasswordEdit()
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.conn_layout.addRow("密码:", self.password_input)
 
@@ -413,7 +479,7 @@ class ConnectDialog(QDialog):
         self.baudrate_combo.addItems([str(b) for b in BAUDRATES])
         serial_layout.addRow("波特率:", self.baudrate_combo)
 
-        self.stopbits_combo = QComboBox()
+        self.stopbits_combo = _QuietCombo()
         for label, value in STOPBIT_OPTIONS:
             self.stopbits_combo.addItem(label, value)
         serial_layout.addRow("停止位:", self.stopbits_combo)
@@ -449,7 +515,7 @@ class ConnectDialog(QDialog):
         ensp_layout.addRow("设备 ID:", self.ensp_node_spin)
 
         pull_row = QHBoxLayout()
-        self.ensp_device_combo = QComboBox()
+        self.ensp_device_combo = _QuietCombo()
         self.ensp_device_combo.setMinimumWidth(240)
         self.ensp_device_combo.addItem("（点右侧按钮从平台拉取）", None)
         self.ensp_device_combo.currentIndexChanged.connect(self.on_ensp_device_picked)
