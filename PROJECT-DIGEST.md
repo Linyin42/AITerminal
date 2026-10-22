@@ -1740,4 +1740,20 @@ H3C 的通配标签是 `任意视图`、华为是 `所有视图`、**锐捷没�
 C++ 那套要改的话是另一轮：`cpp/CMakeLists.txt` 的 target、`cpp/src/main.cpp` 的
 `setApplicationName`（它还决定 `%APPDATA%\AITerminal` 数据目录，得配迁移），并重建验证。
 
+### 17.7 改名后的真机回归（Console，2026-10-22 18:2x）
+
+用户把锐捷交换机接在 **COM5（9600，`Ruijie>`，S2928G-E，RGOS 10.4(2b12)）**，用它验了两件事：
+
+1. **`ui/terminal_widget.py` 那条未提交改动**（浮层候选与已输入内容相同时回车被吞 ⇒ 用户看到
+   "按了回车没反应，得按两次"）。真机探针 `tools/probe_console_enter_real.py`：**13/13 通过**
+   —— 敲完整 `show version` 且浮层候选相同 → 回车**立刻发**、设备回显 RGOS 版本；敲 `show vers`
+   且浮层有尾巴 → 第 1 次回车只把 `ion` 补发给设备（不发回车）、第 2 次才发。
+   不依赖设备的回归：`tests/test_terminal_enter_hint.py` **14/14**（含小键盘 Enter、脏候选）。
+2. **改名后的交付物整条链路**：`dist\NetOpsTerminal.exe`（新产物）起来后 `control.json` 里
+   `"app": "NetOps Terminal"`，经 MCP 桥 `ait_open(serial COM5)` + `ait_send show version`
+   拿到真实设备输出 ⇒ 控制通道 + 串口 + 改名都没问题。
+
+⚠️ 注意：DSH 侧注册的 MCP 桥是**已交付的旧副本**（`ait_status` 的状态行仍打印 `AITerminal 0.7.0`），
+协议兼容、不受仓库改名影响 —— 这也正是 17.3 里坚持不改 `serverName` / 桥文件名的原因。
+
 

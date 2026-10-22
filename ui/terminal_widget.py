@@ -471,9 +471,12 @@ class TerminalWidget(QWidget):
             #   不会出现"想采纳候选却把半截命令发出去了"。
             if self.hint_popup is not None and self.hint_popup.is_active():
                 cur = self.hint_popup.current_command()
-                if cur:
+                # 只有**确实有东西可补**才吃掉这一次回车。候选与已输入内容相同
+                # （没有尾巴要补）时若也拦下来，用户看到的就是"回车没反应、得按两次"。
+                if cur and cur != self.command_buffer:
                     self._accept_hint(cur)
                     return
+                self.hint_popup.hide()
             if not self.command_buffer:
                 # 缓冲空了但设备那一行上还有字（探测命令的残留、或屏幕与缓冲
                 # 不同步）：把这行认下来，历史/建议才和真正执行的一致
