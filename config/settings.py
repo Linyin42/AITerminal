@@ -60,6 +60,10 @@ DEFAULTS: Dict[str, Any] = {
     # 应用启动后自动拉起本地模型（起在**显存**上，不占内存；Vulkan 后端）。
     # 默认关；打开后"软件一起来"本地 LLM 就在 GPU 上跑着，AI 提供方选 local 即可用。
     "local_model_autostart": False,
+    # 拉起本地模型时指定的档位（`run_server.py --tier`）。空 = 自动探测（本机是 mid，
+    # 即官方 Qwen3-4B）。填 "ait" 则用自训模型 Qwen3-4B-AIT-Q4_K_M.gguf —— 2026-10-22 重训后
+    # 带检索的严格命中 48.2% vs 官方 32.1%，但英文手册题略差，所以**默认不选、保持 opt-in**。
+    "local_tier": "",
     # 「打开资料管理先弹导入要求」：勾过"不再显示"写 True；不勾就每次弹（2026-10-17）
     "import_tip_dismissed": False,
     # Console / 串口默认参数

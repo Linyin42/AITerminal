@@ -271,17 +271,28 @@ def decide(p_info=None, s_info=None):
     }
 
 
-def start_server(port=DEFAULT_PORT, timeout=300):
+def start_server(port=DEFAULT_PORT, timeout=300, tier=None):
     """拉起本地 llama-server。**唯一实现**：AI 设置对话框的按钮与「开机自启」都走这里。
 
     打包态经 `app_paths.script_cmd` 变成 `NetOpsTerminal.exe --script run_server.py`，
     源码态直接 python 跑脚本 —— 两种情况交付机都不需要装 Python。
+    `tier` 为空/None 时读设置 `local_tier`：留空 = 自动探测（mid，官方 Qwen3-4B），
+    填 `ait` = 自训模型（2026-10-22 重训版）。
     返回 `(ok, 说明文本)`；**不抛异常**。
     """
     script = os.path.join(LOCAL_LLM_DIR, "run_server.py")
     if not os.path.exists(script):
         return False, f"找不到启动脚本 {script}"
-    cmd = app_paths.script_cmd(script, "--port", str(int(port)))
+    if tier is None:
+        try:
+            from config.settings import Settings
+            tier = str(Settings().get("local_tier") or "").strip()
+        except Exception:                            # noqa: BLE001
+            tier = ""
+    args = ["--port", str(int(port))]
+    if tier:
+        args += ["--tier", tier]
+    cmd = app_paths.script_cmd(script, *args)
     try:
         r = subprocess.run(cmd, cwd=LOCAL_LLM_DIR, timeout=timeout,
                            capture_output=True, text=True,
@@ -290,7 +301,15 @@ def start_server(port=DEFAULT_PORT, timeout=300):
         return False, f"{type(e).__name__}: {e}"
     lines = (r.stdout or r.stderr or "").strip().splitlines()
     tail = lines[-1].strip() if lines else ""
-    if server_status().get("running"):
+    st = server_status()
+    if st.get("running"):
+        # ⚠ 端口上已经有别的实例在跑时，run_server.py 会拒绝起新进程并直接返回成功。
+        #   如果那个实例的档位和用户刚选的不一样，**必须说清楚**，否则用户以为切到 ait 了，
+        #   实际还在 mid（实测踩过：评测服务占着 8080，切档位静默无效）。
+        running_tier = str(st.get("tier") or "")
+        if tier and running_tier and running_tier != tier:
+            return False, (f"当前已在运行 {running_tier} 档（{st.get('model')}），"
+                           f"要切到 {tier} 档请先点「停止」再启动")
         return True, tail or "已启动"
     return False, tail or f"启动失败（rc={r.returncode}）"
 

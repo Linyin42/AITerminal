@@ -191,6 +191,23 @@ class AISettingsDialog(QDialog):
         self.local_status.setWordWrap(True)
         self.local_status.setStyleSheet("color: #93A0B4; font-size: 11px;")
         local_layout.addWidget(self.local_status)
+        # 档位选择：默认自动（官方 4B）；ait = 2026-10-22 自训模型。
+        # 只在"启动本地模型"时通过 --tier 传下去，改完要重启本地服务才生效。
+        tier_row = QHBoxLayout()
+        tier_row.addWidget(QLabel("档位："))
+        self.local_tier_combo = QComboBox()
+        self.local_tier_combo.addItem("自动（官方 Qwen3-4B）", "")
+        self.local_tier_combo.addItem("ait（自训 Qwen3-4B）", "ait")
+        _cur_tier = str(self.settings.get("local_tier") or "")
+        _idx = self.local_tier_combo.findData(_cur_tier)
+        self.local_tier_combo.setCurrentIndex(_idx if _idx >= 0 else 0)
+        self.local_tier_combo.setToolTip(
+            "「启动本地模型」时传给 run_server.py 的档位。\n"
+            "ait = 自训模型（56 题带检索严格命中 48.2%，官方 32.1%）；\n"
+            "英文手册类问题自训模型略差，所以默认仍是自动（官方）。\n"
+            "改完需要停一次再启动本地服务才生效。")
+        tier_row.addWidget(self.local_tier_combo, 1)
+        local_layout.addLayout(tier_row)
         api_layout.addWidget(self.local_row)
         self.local_row.setVisible(False)
         self.local_checked.connect(self._on_local_checked)
@@ -346,6 +363,7 @@ class AISettingsDialog(QDialog):
         """按原来的键写入配置并落盘，然后通知外面刷新"""
         self.stash_current()
         self.settings.ai_provider = self.get_provider()
+        self.settings.set("local_tier", self.local_tier_combo.currentData() or "")
         for name, draft in self._drafts.items():
             self.settings.set_api_key_for(name, draft["api_key"])
             self.settings.set_provider_config(

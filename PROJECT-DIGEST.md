@@ -1852,3 +1852,30 @@ DSH 下次重启会自动变成新名，配置一行都不用改。
 
 见 `RETRAIN_REPORT_20261022.md` §7（五条命令：重建集 → CPT → SFT → 导出 → 评测）。
 所有日志在 `D:\ait_llm\train\log_retrain_*.txt` / `log_export_retrain.txt` / `log_eval_*.txt`。
+
+### 18.7 四组对比补齐 + 接进应用（2026-10-22 晚）
+
+完整 56 题、同一判分脚本重跑四组（此前只有 tuned 两组的对照）：
+
+| 组 | 严格命中 | 宽松 | 均长 |
+|---|---|---|---|
+| base（官方 4B） | 7.1% | 7.1% | 686 |
+| base+rag | 30.4% | 33.9% | 129 |
+| tuned（自训） | 10.7% | 10.7% | 475 |
+| **tuned+rag** | **48.2%** | 57.1% | 152 |
+
+按类别（带检索）：common 31.2%→43.8%、longtail 29.2%→54.2%。检索环节两组一致（命中源 82%、
+事实 100% 进上下文），差异来自模型"读没读进去"，不是检索。
+
+**接进应用**（原来点「启动本地模型」固定起 mid 档，自训模型用不上）：
+
+- `config/settings.py` 新增 `local_tier`（默认 `""`=自动探测；`ait`=自训）；
+- `core/local_model.py: start_server(tier=None)` 读该设置并传 `--tier`，且**档位不一致时明确报错**
+  （端口上已有实例时 `run_server.py` 会拒绝起新进程并返回成功 —— 不说清楚就等于"切了没生效"，实测踩过）；
+- `ui/ai_settings_dialog.py` 本地模型区新增「档位」下拉（自动 / ait），保存落盘。
+
+验证 7/7：命令行带 `--tier ait`、pid 文件 `tier=ait`/`model=Qwen3-4B-AIT-Q4_K_M.gguf`、
+`core.llm.build_client(provider="local")` 出话、收尾无残留。回归：`test_local_model.py` 30/0、
+`test_local_model_ui.py` 17/0、`test_local_model_startup_label.py` 11/0、`test_ai_connection.py` 通过。
+
+⚠ 切档位要先停一次本地服务；`ait` 档英文手册类问题略差，默认仍是"自动"。
