@@ -72,13 +72,13 @@ for vendor in cs.VENDORS:
           % (vendor, ms, st["commands"], st["command_names"], st["commands_dropped"],
              st["examples"], st["words"], st["seq_keys"],
              ",".join(list(st["models"])[:3])))
-# 2026-10-23：ruijie 从 12387 → 12990 → 15259 → 15570 —— 补了 `show …` 命令（原来整个 show
-# 家族只有 2 条，补全给不出 `show vlan`）。来源：tools/ruijie_fulltext_commands.py
-# 抽 312 份「命令参考」+ 366 份「配置指南」，22.8 万/14 万条原始条目按命令名去重，
-# 跳过已入库后共写入 2269 + 311 条。
-check("三家索引规模与原始数据一致（h3c 8556/821, ruijie 15570/5721）",
+# 2026-10-23：ruijie 从 12387 → 12990 → 15259 → 15570 → 15623 —— 补了 `show …` 命令（原来整个
+# show 家族只有 2 条，补全给不出 `show vlan`）。来源：tools/ruijie_fulltext_commands.py
+# 抽 312 份「命令参考」+ 366 份「配置指南」+ S5750 命令参考 PDF，37 万条原始条目按命令名去重，
+# 跳过已入库后写入 2269 + 311 + 53 条。IS5200/S6930 两份 PDF 的命令全为重复（新增 0）已回滚。
+check("三家索引规模与原始数据一致（h3c 8556/821, ruijie 15623/5721）",
       cs.stats("h3c")["commands"] == 8556 and cs.stats("h3c")["examples"] == 821
-      and cs.stats("ruijie")["commands"] == 15570 and cs.stats("ruijie")["examples"] == 5721,
+      and cs.stats("ruijie")["commands"] == 15623 and cs.stats("ruijie")["examples"] == 5721,
       "huawei commands=%d（原始 29835，被过滤的 66 条是 `undo {`/`ftp { put | get }` 这类语法碎片）"
       % cs.stats("huawei")["commands"])
 
