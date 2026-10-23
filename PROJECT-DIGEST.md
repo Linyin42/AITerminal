@@ -1924,3 +1924,40 @@ DSH 下次重启会自动变成新名，配置一行都不用改。
 2. 同一文件只留一个写手：要么 `edit`，要么 shell 重写，不混；
 3. 脚本里涉及独占资源（串口/端口/GPU），先显式释放再交给下一个消费者；
 4. FAIL 先分类：产品 bug / 我的测试参数 / 环境缺失 —— 本轮三类都出现了，混为一谈会改错东西。
+
+### 18.10 复盘：两个"真缺口"的修法 —— 一个加代码，一个补数据
+
+功能测试矩阵里有 1 个产品侧缺口（用户模式 → 什么都不提示）和 1 个数据缺口（锐捷 `show …` 没进补全索引）。
+两个都修了，但**修法完全不同**，混着用会修坏东西。
+
+**A. 自动 enable（代码）**
+
+- 只在提示符形如 `Ruijie>` / `Switch>`（`^[A-Za-z][\w.\-]*>\s*$`）时判成用户模式；
+  `<H3C>` / `[H3C]` / `#` 一律不算 —— 华为/华三没有 enable 层，误发 `enable` 会把回显污染成
+  `% Unknown command.`，用户看到的就是"应用在乱敲命令"。
+- 接入两条路径：巡检（`auto_enable` 默认开，enable 成功后才 `disable_paging`）、
+  交互会话（建会话后自动切，`connection_info` 里提示「已自动 enable（Ruijie> → Ruijie#）」）。
+- **不静默失败**：没勾自动 enable 但设备在用户模式时，note 明说"停在用户模式"并指路"勾自动 enable + 填密码"。
+- 真机：`privilege=privileged`、`show running-config` 拿到 1364 字符全量；关掉自动 enable →
+  `privilege=user` + 4 条提示。`tests/test_enable_mode.py` 13/13。
+
+**B. 补全数据（数据，不是代码）**
+
+- 症状：`suggest('show vlan','ruijie')` 0 候选，`show …` 家族整共 2 条（3,377 条命令里）。
+- 根因不在 `command_suggest.py`：`tools/doc_to_commands.py` 只认 `章/*.htm`，
+  而锐捷「命令参考」是**单文件 fulltext.txt**（483 份），它一份都读不了。
+- 修法：新增 `tools/ruijie_fulltext_commands.py`（整行成命令 + 动词限 show/display + ≤4 词 +
+  只允许 `[...]`/`{a|b}` 尾巴 + 剔中文），AC 命令参考抽出 **603 条**，`commands.jsonl`
+  18,108 → 18,711 行（自动备份）。
+- 验证：`show vlan` → 2 候选、`show vlan ` → `id`、`show ver` → `show version`、
+  `show run` → `show running-config`、`show ` → 20+20；索引规模断言 12,387 → 12,990。
+
+**回归**：`smoke_test` 647/0、`regression_fixes` 83/0、`command_suggest_test` 48/0、
+`test_enable_mode` 13/0、`feat_matrix` 23/0（新加 `2.0 自动 enable`）。
+
+**纪律**：
+1. 看到"数据不对"先找**谁写这份数据**，别在消费端（补全/索引）加特判；本轮 806 行 `^show [a-z]`
+   就在文档里躺着，症结是抽取器读不了这种文档格式。
+2. 数据快照断言（索引规模）数据变了就改数字并注明来源，不放宽成 `> 0`。
+3. mode 切换要能自愈：设备掉电/断开/DTR 变化都会回用户模式，测试脚本必须每次自己 `ensure_privileged`，
+   否则矩阵会随机红（本轮就红过一次：`probe_session_enable` 关会话后设备回到 `Ruijie>`）。

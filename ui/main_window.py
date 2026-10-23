@@ -876,6 +876,9 @@ class MainWindow(QMainWindow):
             'auto_reconnect': config.get('auto_reconnect', True),
             'reconnect_interval': config.get('reconnect_interval', 2.0),
             'local_echo': config.get('local_echo', False),
+            # 连上后自动 enable（锐捷/思科这类用户模式设备）；密码只在本机配置里
+            'auto_enable': config.get('auto_enable', True),
+            'enable_password': config.get('enable_password', ''),
         }, self)
         task.finished.connect(lambda t=task: self.on_connect_task_done(t))
         self._connect_task = task

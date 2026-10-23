@@ -79,6 +79,13 @@ DEFAULTS: Dict[str, Any] = {
         # 网络设备（交换机/路由器）Console 口基本都自带回显，默认关掉本地回显；
         # 设备确实不回显（如部分 BootROM）时才勾选 —— 否则两边同时回显，屏幕会重影
         "local_echo": False,
+        # 连上后自动 `enable` 进特权模式（锐捷/思科这类"用户模式"设备才需要）。
+        # 真机测试（2026-10-23）发现设备停在 `Ruijie>` 时 `terminal length 0` 是
+        # Unknown command、`show running-config` 只回一行报错，巡检拿不到配置。
+        # 只对"提示符形如 Ruijie> 且不以 < 开头"的设备生效，华为/华三的 <H3C> 不受影响。
+        "auto_enable": True,
+        # 设备要求 enable 密码时用（留空 = 设备没设密码）
+        "enable_password": "",
     },
     "last_connection": {},
     "recent_connections": [],

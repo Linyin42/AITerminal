@@ -397,6 +397,24 @@ class SessionManager(QObject):
             session.connector.connection_lost.connect(
                 lambda sid=session_id: self._on_connection_lost(sid)
             )
+            # 自动 enable：锐捷/思科这类设备连上停在用户模式（`Ruijie>`），
+            # 不切特权模式的话 `terminal length 0` 会被拒、`show running-config` 只回一行报错。
+            # 只对形如 `Ruijie>` 的提示符生效（华为/华三的 `<H3C>` 不受影响）；
+            # 失败只提示一句，不影响已经建好的会话。
+            if kwargs.get('auto_enable', True) and protocol in ("Serial", "SSH", "Telnet"):
+                try:
+                    from .batch import CommandWaiter, ensure_privileged
+                    _waiter = CommandWaiter(session.connector, quiet_time=0.4, timeout=10)
+                    _waiter.start()
+                    try:
+                        _ok, _prompt, _note = ensure_privileged(
+                            session.connector, _waiter,
+                            password=str(kwargs.get('enable_password') or ''))
+                    finally:
+                        _waiter.stop()
+                    self.connection_info.emit(session_id, _note)
+                except Exception:                       # noqa: BLE001
+                    pass
             # 串口自动重连的进度提示
             if hasattr(session.connector, 'reconnecting'):
                 session.connector.reconnecting.connect(

@@ -286,6 +286,20 @@ class SerialAdvancedDialog(QDialog):
         recover_layout.addLayout(reconnect_row)
         self.chk_local_echo = QCheckBox("本地回显（设备不回显时勾选）")
         recover_layout.addWidget(self.chk_local_echo)
+        # 登录后处理：锐捷/思科这类设备连上停在用户模式（`Ruijie>`），
+        # 这时 terminal length 0 / show running-config 都会被拒。
+        self.chk_auto_enable = QCheckBox("连接后自动 enable（进特权模式）")
+        self.chk_auto_enable.setToolTip(
+            "只对提示符形如 Ruijie> / Switch> 的设备生效（锐捷、思科这类有 enable 层的）；\n"
+            "华为/华三的 <H3C> 不受影响。巡检、批量下发也会用这个开关。")
+        recover_layout.addWidget(self.chk_auto_enable)
+        enable_row = QHBoxLayout()
+        enable_row.addWidget(QLabel("enable 密码"))
+        self.enable_password_input = QLineEdit()
+        self.enable_password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.enable_password_input.setPlaceholderText("设备没设 enable 密码就留空")
+        enable_row.addWidget(self.enable_password_input, 1)
+        recover_layout.addLayout(enable_row)
         recover_group.setLayout(recover_layout)
         layout.addWidget(recover_group)
 
@@ -325,6 +339,8 @@ class SerialAdvancedDialog(QDialog):
         if c.get('reconnect_interval'):
             self.reconnect_spin.setValue(float(c['reconnect_interval']))
         self.chk_local_echo.setChecked(bool(c.get('local_echo', False)))
+        self.chk_auto_enable.setChecked(bool(c.get('auto_enable', True)))
+        self.enable_password_input.setText(str(c.get('enable_password') or ''))
         self.update_summary()
 
     def on_preset_selected(self, name: str):
@@ -954,6 +970,8 @@ class ConnectDialog(QDialog):
                 'auto_reconnect': bool(advanced.get('auto_reconnect', True)),
                 'reconnect_interval': float(advanced.get('reconnect_interval', 2.0)),
                 'local_echo': bool(advanced.get('local_echo', False)),
+                'auto_enable': self.chk_auto_enable.isChecked(),
+                'enable_password': self.enable_password_input.text(),
             })
             # 记住串口参数，下次打开自动填
             self.settings.set_serial_defaults({
@@ -966,6 +984,8 @@ class ConnectDialog(QDialog):
                 'char_delay_ms': config['char_delay_ms'],
                 'auto_reconnect': config['auto_reconnect'],
                 'local_echo': config['local_echo'],
+                'auto_enable': config['auto_enable'],
+                'enable_password': config['enable_password'],
             })
         else:
             config['host'] = self.host_input.text().strip()

@@ -18,7 +18,8 @@ from typing import Dict, List, Optional, Sequence
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from .batch import CommandWaiter, disable_paging
+from .batch import (CommandWaiter, disable_paging, ensure_privileged,
+                    current_prompt, in_user_mode)
 from .ssh_connector import SSHConnector
 from .telnet_connector import TelnetConnector
 from .serial_connector import SerialConnector
@@ -200,6 +201,28 @@ def patrol_device(config: dict, commands: Sequence[str], timeout: float = 10.0,
                                auto_page=auto_page)
         waiter.start()
 
+        # 用户模式（`Ruijie>`）下 `terminal length 0` 直接 Unknown command、
+        # `show running-config` 只回一行报错 —— 巡检拿不到配置却看不出根因。
+        # 连接设置里勾了「自动 enable」（默认勾）就先切到特权模式。
+        result["privilege"] = "privileged"
+        try:
+            if config.get("auto_enable", True):
+                priv_ok, _prompt_now, priv_note = ensure_privileged(
+                    connector, waiter,
+                    password=str(config.get("enable_password") or ""),
+                    timeout=min(15.0, max(5.0, prompt_timeout)))
+                note(priv_note)
+                result["privilege"] = "privileged" if priv_ok else "user"
+            else:
+                # 没勾"自动 enable"也要知道当前模式 —— 用户模式下 show running-config
+                # 会被拒，提示里必须说清楚，否则用户只看到"关分屏没成功"。
+                _p0 = current_prompt(connector, waiter, timeout=min(8.0, max(3.0, prompt_timeout)))
+                if in_user_mode(_p0):
+                    result["privilege"] = "user"
+                    note(f"设备停在用户模式（{_p0}），未勾选「自动 enable」")
+        except Exception as e:                      # noqa: BLE001
+            note(f"自动 enable 出错：{e}")
+
         # 先关设备分屏再跑命令。为什么必须做：
         #   分屏开着时，一条 `display mac-address` 会被切成几十屏，每屏都要等
         #   "---- More ----" 再补一个空格（每页还带 0.2s 节流），实测 51 KB 的输出
@@ -215,6 +238,9 @@ def patrol_device(config: dict, commands: Sequence[str], timeout: float = 10.0,
                     paging_off = used
                     note(f"已关闭分屏（{used}）")
                 else:
+                    if result.get("privilege") == "user":
+                        note("设备停在用户模式（提示符以 > 结尾）：show running-config "
+                             "这类命令会被拒；请在连接设置里勾「自动 enable」并填密码")
                     note("关分屏没成功，将逐页翻页（会慢一些）")
             except Exception:                       # noqa: BLE001
                 paging_off = ""

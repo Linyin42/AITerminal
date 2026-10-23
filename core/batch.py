@@ -251,6 +251,81 @@ def disable_paging(connector, waiter=None, vendor: str = "unknown",
             waiter.stop()
 
 
+#: 用户模式提示符：`Ruijie>` / `Switch>` / `Router>` / `S2928G-E>`。
+#: **故意不含** `<H3C>` / `<Huawei>` 这种带尖括号的 —— 华为/华三没有 enable 这一层，
+#: `<H3C>` 就是它们的普通视图，往里发 `enable` 只会得到 `% Unrecognized command`。
+#: 也不含 `#`（已是特权模式）和 `[...]`（配置视图）。
+USER_PROMPT_RE = re.compile(r'^[A-Za-z][\w.\-]*>\s*$')
+
+
+def current_prompt(connector, waiter, timeout: float = 8.0) -> str:
+    """敲一个空回车，取当前提示符（回显的最后一行非空行）。
+
+    为什么要发一个回车而不是直接读缓冲：缓冲区可能停在半行（比如上一条命令
+    的 `--More--`），空回车能让设备把提示符重新打一遍，是最便宜的状态探测。
+    """
+    old_timeout = waiter.timeout
+    try:
+        waiter.timeout = timeout
+        waiter.reset()
+        connector.send("")            # send("") 只发行结束符 = 敲回车
+        waiter.wait()
+        text = (waiter.text() or "").strip()
+    finally:
+        waiter.timeout = old_timeout
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if line:
+            return line
+    return ""
+
+
+def in_user_mode(prompt: str) -> bool:
+    """提示符是不是"用户模式"（需要 enable 才能做 show running-config 这类事）"""
+    return bool(USER_PROMPT_RE.match((prompt or "").strip()))
+
+
+def ensure_privileged(connector, waiter, password: str = "", timeout: float = 10.0):
+    """设备停在用户模式（`Ruijie>`）时自动 `enable`，返回 (ok, 提示符, 说明)。
+
+    **只切模式，不改配置**。ok=True 表示"当前确实在特权模式"——本来就在也算成功，
+    所以调用方可以无脑调用，不必先判断。
+
+    为什么需要它：真机测试（2026-10-23）发现设备停在 `Ruijie>` 时
+    `terminal length 0` 直接 `% Unknown command`、`show running-config` 只回一行报错，
+    巡检/批量拿不到配置，界面上却只显示"关分屏没成功"，看不出根因是模式。
+    """
+    prompt = current_prompt(connector, waiter, timeout=min(timeout, 8.0))
+    if not in_user_mode(prompt):
+        return True, prompt, f"已在特权模式（{prompt or '提示符未知'}）"
+
+    old_timeout = waiter.timeout
+    status = ""
+    out = ""
+    try:
+        waiter.timeout = timeout
+        status, _elapsed, out = waiter.run("enable")
+        low = (out or "").lower()
+        # 设备要密码时，提示符停在 `Password:` 上：既可能被判成 silence（没有提示符字符），
+        # 也可能因为冒号进了 quiet 判定。两种都当成"要密码"。
+        if not (waiter.text() or "").rstrip().endswith("#") and (
+                "password" in low or status == "silence"):
+            if not password:
+                return False, prompt, ("设备要求 enable 密码，但没填"
+                                       "（连接设置里可以填「enable 密码」）")
+            waiter.timeout = timeout
+            status, _elapsed, out = waiter.run(password)
+    finally:
+        waiter.timeout = old_timeout
+
+    prompt2 = current_prompt(connector, waiter, timeout=min(timeout, 8.0))
+    if prompt2.endswith("#"):
+        return True, prompt2, f"已自动 enable（{prompt} → {prompt2}）"
+    if "password" in (out or "").lower() or status == "silence":
+        return False, prompt2, "enable 失败：密码不对（或设备没配 enable 密码却要求输入）"
+    return False, prompt2, f"enable 没生效（当前提示符 {prompt2 or '未知'}）"
+
+
 class BatchRunner(QObject):
     """
     批量命令执行器
