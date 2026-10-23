@@ -67,9 +67,18 @@ def guess_vendor(config: dict, extra_text: str = "") -> str:
 
 
 
+#: 协议名大小写归一。UI 的 connect_dialog 给的是 `Serial`/`SSH`/`Telnet`/`eNSP`，
+#: 但手写配置 / 从 JSON 导入 / 旧版本存档里常见 `serial`、`ssh` 这类小写写法 ——
+#: 以前直接 `raise ValueError("不支持的协议: serial")`（2026-10-23 真机测试踩到）。
+_PROTOCOL_ALIASES = {
+    "ssh": "SSH", "telnet": "Telnet", "serial": "Serial", "ensp": "eNSP",
+}
+
+
 def build_connector(config: dict):
     """按配置创建连接器（不注册到会话管理器）"""
-    protocol = (config.get('protocol') or 'SSH').strip()
+    raw = (config.get('protocol') or 'SSH').strip()
+    protocol = _PROTOCOL_ALIASES.get(raw.lower(), raw)
     if protocol == 'SSH':
         return SSHConnector(), 'SSH'
     if protocol == 'Telnet':

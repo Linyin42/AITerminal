@@ -145,8 +145,13 @@ delete flash:/vrpcfg.zip
     check("delete 被拦进 blocked、没进可执行项",
           any("delete" in b for b in r["blocked"]) and not any("delete" in c for c in cmds),
           f"blocked={r['blocked']}")
-    check("undo vlan 10 进了可执行项但**必须确认**",
-          any("undo" in c for c in cmds) and r["needs_confirm"] is True, r["summary"])
+    # 2026-10-22 对齐：`undo vlan 10` 是"删掉整个 VLAN"的破坏性操作，黑名单
+    # （core/ai_agent.py 的 DANGEROUS_PATTERNS：`\b(no|undo)\s+(vlan|acl|port-group)\b`）
+    # **直接拦截**，比"确认后执行"更严。原断言写的是"进可执行项但必须确认"，与实现意图相反，
+    # 会让人以为 AI 可以删 VLAN —— 按更安全的一侧对齐。
+    check("undo vlan 10 被直接拦截（比确认更严）",
+          any("undo" in b for b in r["blocked"]) and not any("undo" in c for c in cmds),
+          f"blocked={r['blocked']}")
     check("summary 报出拦截条数", "拦截" in r["summary"], r["summary"][-40:])
     check("配置类命令带上了逐条风险标注",
           all(it["risk"] for it in r["items"] if it["config"]), str(
