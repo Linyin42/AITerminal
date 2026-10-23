@@ -104,6 +104,8 @@ def main() -> int:
     ap.add_argument("--model", default="RGOS", help="写进 model 字段，如 S2928G-E / AC")
     ap.add_argument("--append", action="store_true", help="追加进 commands.jsonl（自动备份）")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--show-new", type=int, default=0,
+                    help="打印前 N 条新增命令（抽查质量用，不写盘）")
     ap.add_argument("--allow-dup", action="store_true",
                     help="允许重复写已存在的命令名（默认跳过：补全按命令名索引，重复的只有浪费）")
     a = ap.parse_args()
@@ -144,12 +146,8 @@ def main() -> int:
     print("样例:", [r["syntax"] for r in rows[:5]])
 
     dest = os.path.join(CMD_ROOT, "ruijie", "commands.jsonl")
-    if not a.append:
-        print("\n（未加 --append，只统计。目标: %s）" % dest)
-        return 0
-
     os.makedirs(os.path.dirname(dest), exist_ok=True)
-    #: 已经入过库的命令名（跨文档重复极多：603 条 AC 命令里有大半在别的文档里也有）
+    #: 已经入过库的命令名（跨文档重复极多：312 份命令参考里 228,101 条命中只有 2,867 个命令名）
     existing = set()
     if os.path.isfile(dest):
         for line in io.open(dest, encoding="utf-8"):
@@ -163,8 +161,15 @@ def main() -> int:
                     existing.add(c)
     if not a.allow_dup:
         keep = [r for r in rows if r["command"] not in existing]
-        print("跳过已入库命令 %d 条，本次写 %d 条" % (len(rows) - len(keep), len(keep)))
+        print("跳过已入库命令 %d 条，新增 %d 条" % (len(rows) - len(keep), len(keep)))
         rows = keep
+    if a.show_new:
+        print("新增样例（前 %d 条）:" % a.show_new)
+        for r in rows[:a.show_new]:
+            print("   %-46s %s" % (r["syntax"][:46], r["source"].split("/")[0][:52]))
+    if not a.append:
+        print("\n（未加 --append，只统计。目标: %s）" % dest)
+        return 0
     if not rows:
         print("没有新命令要写。")
         return 0
