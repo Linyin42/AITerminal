@@ -1945,12 +1945,16 @@ DSH 下次重启会自动变成新名，配置一行都不用改。
 
 - 症状：`suggest('show vlan','ruijie')` 0 候选，`show …` 家族整共 2 条（3,377 条命令里）。
 - 根因不在 `command_suggest.py`：`tools/doc_to_commands.py` 只认 `章/*.htm`，
-  而锐捷「命令参考」是**单文件 fulltext.txt**（483 份），它一份都读不了。
+  而锐捷「命令参考」是**单文件 fulltext.txt**（312 份），它一份都读不了。
 - 修法：新增 `tools/ruijie_fulltext_commands.py`（整行成命令 + 动词限 show/display + ≤4 词 +
-  只允许 `[...]`/`{a|b}` 尾巴 + 剔中文），AC 命令参考抽出 **603 条**，`commands.jsonl`
-  18,108 → 18,711 行（自动备份）。
-- 验证：`show vlan` → 2 候选、`show vlan ` → `id`、`show ver` → `show version`、
-  `show run` → `show running-config`、`show ` → 20+20；索引规模断言 12,387 → 12,990。
+  只允许 `[...]`/`{a|b}` 尾巴 + 剔中文 + **按命令名去重 / 跳过已入库**），全量跑 312 份：
+  原始命中 228,101 条 → 去重 2,867 条 → 新增 2,269 条；`commands.jsonl` 18,108 → 20,980 行。
+- **关键在去重**：补全索引按命令名建键，22.8 万条直接写进去会让文件涨 40 倍、加载从 0.3s 掉到
+  好几秒；去重后索引 commands 12,387 → 15,259，加载 316 → **336 ms**（几乎不变）。
+- 验证：`show vlan` → 8 候选、`show vlan ` → 5、`show ver` → 6、`show run` → 3、
+  `show interface ` → 9+7、`show ` → 20+20；索引规模断言 12,387 → 15,259。
+- 质量抽检：`show of`（OpenFlow）/`show si`（自定义应用）看着像碎片，回原文都是
+  `【命令格式】` 小节标题，属真实命令 —— 不要用"看着不像"当过滤依据。
 
 **回归**：`smoke_test` 647/0、`regression_fixes` 83/0、`command_suggest_test` 48/0、
 `test_enable_mode` 13/0、`feat_matrix` 23/0（新加 `2.0 自动 enable`）。

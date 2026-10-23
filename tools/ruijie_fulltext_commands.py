@@ -104,6 +104,8 @@ def main() -> int:
     ap.add_argument("--model", default="RGOS", help="写进 model 字段，如 S2928G-E / AC")
     ap.add_argument("--append", action="store_true", help="追加进 commands.jsonl（自动备份）")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--allow-dup", action="store_true",
+                    help="允许重复写已存在的命令名（默认跳过：补全按命令名索引，重复的只有浪费）")
     a = ap.parse_args()
 
     docs = doc_paths(a.doc)
@@ -113,13 +115,23 @@ def main() -> int:
     print("匹配目录 %d 个" % len(docs))
 
     rows, per_doc = [], []
-    for name, path in docs:
+    for i, (name, path) in enumerate(docs, 1):
         got = extract(path, a.model, name)
         per_doc.append((name, len(got)))
         rows.extend(got)
+        if len(docs) > 20 and i % 25 == 0:
+            print("  ... %d/%d 份，累计 %d 条" % (i, len(docs), len(rows)))
+    #: 同一轮里同一条命令只留第一份：补全索引只按命令名建键
+    uniq, seen_cmd = [], set()
+    for r in rows:
+        if r["command"] in seen_cmd:
+            continue
+        seen_cmd.add(r["command"])
+        uniq.append(r)
+    print("抽出条目 %d 条 → 去重后命令名 %d 条" % (len(rows), len(uniq)))
+    rows = uniq
     if a.limit:
         rows = rows[:a.limit]
-    print("抽出命令条目 %d 条" % len(rows))
     for name, n in per_doc[:10]:
         print("  %-70s %5d" % (name[:70], n))
     if not rows:
@@ -137,6 +149,25 @@ def main() -> int:
         return 0
 
     os.makedirs(os.path.dirname(dest), exist_ok=True)
+    #: 已经入过库的命令名（跨文档重复极多：603 条 AC 命令里有大半在别的文档里也有）
+    existing = set()
+    if os.path.isfile(dest):
+        for line in io.open(dest, encoding="utf-8"):
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if obj.get("kind") == "command":
+                c = str(obj.get("command") or "").strip().lower()
+                if c:
+                    existing.add(c)
+    if not a.allow_dup:
+        keep = [r for r in rows if r["command"] not in existing]
+        print("跳过已入库命令 %d 条，本次写 %d 条" % (len(rows) - len(keep), len(keep)))
+        rows = keep
+    if not rows:
+        print("没有新命令要写。")
+        return 0
     if os.path.isfile(dest):
         bak = dest + ".bak_" + time.strftime("%Y%m%d_%H%M")
         shutil.copy2(dest, bak)

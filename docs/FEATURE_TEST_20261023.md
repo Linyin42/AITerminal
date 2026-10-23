@@ -52,7 +52,7 @@ $env:QT_QPA_PLATFORM='offscreen'
 | 30 | 多标签创建 / 关闭 / 掉线提示 | PASS | smoke「标签页已创建」「会话已关闭」「掉线: 连接已断开 + 时间」 |
 | 31 | 外部接管控制 UI | PASS | `test_control_ui.py 17/0` |
 | **补全数据** ||||
-| 32 | 锐捷 `show vlan` 补全 | PASS（修后） | `suggest('show vlan','ruijie')` 2 候选、`show vlan ` → `id`；补 603 条 `show …` 后复测 23/23 |
+| 32 | 锐捷 `show vlan` 补全 | PASS（修后） | 全量抽 312 份命令参考后 `suggest('show vlan','ruijie')` 8 候选、`show vlan ` → 5；矩阵 6.2 由 0 候选变 10 候选，23/23 |
 | 33 | 华为/H3C `display vlan ` 补全 | PASS | huawei token 5 / next 5；h3c token 2 / next 5 / seq 4 |
 | 34 | 终端三色快照 | N/A | 依赖 `%TEMP%\ait_cpp_build\AITerminal.exe`（C++ 构建产物不存在） |
 
@@ -91,15 +91,20 @@ UI 传的是 `Serial`，但手写/导入的配置常是小写。
 它一份都读不了（这就是为什么 ruijie 的 `source` 全是 `fulltext.txt#L<n>` 但命令数那么少）。
 
 修复：新增 `tools/ruijie_fulltext_commands.py`（保守规则：整行成命令、动词限 show/display、
-命令名 ≤4 词、只允许 `[...]`/`{a|b}` 尾巴、剔除中文行），对 AC 命令参考跑了一遍：
+命令名 ≤4 词、只允许 `[...]`/`{a|b}` 尾巴、剔除中文行），全量跑了 312 份「命令参考」：
 
-- 抽出 603 条 `show …`，`commands.jsonl` 18,108 → 18,711 行（自动备份 `.bak_20261023_2116`）；
-- 验证：`show vlan` → 2 候选、`show vlan ` → `id` 参数、`show ver` → `show version`、
-  `show run` → `show running-config`、`show ` → 20+20 候选；
-- 索引规模断言从 12,387 更新到 12,990（`tests/command_suggest_test.py` 48/0）。
+- 原始命中 **228,101** 条目 → 按命令名去重到 **2,867** 条 → 跳过已入库后写入 **2,269** 条；
+- `commands.jsonl` 18,108 → **20,980** 行（自动备份 `.bak_20261023_2125`）；索引
+  commands 12,387 → **15,259**、去重命令名 6,243、词表 3,571；
+- **加载耗时没变**：312 份文档抽完，索引加载 316 ms → **336 ms**（只写命令名去重后的条目，
+  不是 22 万条全塞进去，这才是加载不涨的原因）；
+- 验证：`show vlan` → 8 候选、`show vlan ` → 5（`summary`/`statistics`/`private-vlan`）、
+  `show ver` → 6、`show run` → 3、`show interface ` → 9+7、`show ` → 20+20；
+- 抽出来的不是垃圾：抽查 `show of`（OpenFlow 状态）、`show si`（自定义应用）在原文里都是
+  `【命令格式】` 小节标题，属真实命令；
+- 索引规模断言 12,387 → **15,259**（`tests/command_suggest_test.py` 48/0）。
 
-剩余：锐捷还有 482 份命令参考没跑（`--doc '*命令参考*'`），要不要全量导入由用户定
-（数据量会显著变大，索引加载时间随之上升）。
+复跑真机矩阵：`6.2 'show vlan '` 从 2 候选变成 10 候选，**23 PASS / 0 FAIL**。
 
 ### 4. `undo vlan 10` 的测试断言与实现意图相反（已对齐）
 实现：`core/ai_agent.py` 的 `DANGEROUS_PATTERNS` 含 `\b(no|undo)\s+(vlan|acl|port-group)\b`，直接**拦截**。
@@ -121,4 +126,5 @@ UI 传的是 `Serial`，但手写/导入的配置常是小写。
 - eNSP Pro：平台未启动（8443 不通）。
 - 终端三色快照：需要 C++ 版构建产物。
 - 真机 `--More--` 手动翻页（空格/`q`）只测了自动翻页路径。
-- 锐捷 482 份命令参考还没抽（见「发现的问题 3」）。
+- 锐捷 312 份命令参考已全量抽取（22.8 万条原始 → 2,867 条去重命令）；其余非「命令参考」类
+  文档（配置指南/一本通）里的 `show …` 还没抽，需要时同样可以跑这个工具。
